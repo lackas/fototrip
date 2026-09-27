@@ -15,13 +15,29 @@ def assign_ids(photos: list[Photo]) -> list[Photo]:
     Ids are filename stems because they are recognisable, but two subfolders can
     hold the same stem, so later duplicates get a numeric suffix.
     """
-    seen: Counter[str] = Counter()
+    # Sort by source path for stable ordering regardless of input order
+    sorted_photos = sorted(photos, key=lambda p: str(p.source))
+
+    used_ids = set()
     result = []
-    for photo in photos:
+    for photo in sorted_photos:
         stem = Path(photo.source).stem
-        seen[stem] += 1
-        suffix = "" if seen[stem] == 1 else f"-{seen[stem]}"
-        result.append(photo.evolve(photo_id=f"{stem}{suffix}"))
+
+        # Find the next available id with this stem, bumping counter until unused
+        counter = 1
+        while True:
+            if counter == 1:
+                candidate_id = stem
+            else:
+                candidate_id = f"{stem}-{counter}"
+
+            if candidate_id not in used_ids:
+                used_ids.add(candidate_id)
+                result.append(photo.evolve(photo_id=candidate_id))
+                break
+
+            counter += 1
+
     return result
 
 

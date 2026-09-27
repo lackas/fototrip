@@ -23,7 +23,7 @@ def _photo(name, day, hour, lat=-25.6, lon=-54.4, subdir=""):
 
 
 def _derivs(photo_id):
-    return Derivatives(f"thumb/{photo_id}.jpg", f"web/{photo_id}.jpg", 480, 640)
+    return Derivatives(f"thumb/{photo_id}.jpg", f"web/{photo_id}.jpg", 1600, 1200)
 
 
 def test_ids_come_from_the_filename_stem():
@@ -65,8 +65,8 @@ def test_manifest_entry_shape():
         "id": "IMG_1",
         "thumb": "thumb/IMG_1.jpg",
         "web": "web/IMG_1.jpg",
-        "w": 480,
-        "h": 640,
+        "w": 1600,
+        "h": 1200,
         "lat": -25.6,
         "lon": -54.4,
         "t": "2026-07-19T10:00:00-03:00",
@@ -106,6 +106,37 @@ def test_coordinates_are_rounded_to_six_decimals():
     [photo] = assign_ids([_photo("a.jpeg", "2026-07-19", 10, lat=-25.68581666666667)])
     result = build_manifest([(photo, _derivs("a"))])
     assert result["photos"][0]["lat"] == -25.685817
+
+
+def test_colliding_stems_with_preexisting_suffixed_variant():
+    """Pre-existing -2 suffix doesn't cause collision when handling duplicates."""
+    photos = assign_ids(
+        [
+            _photo("IMG_1.jpeg", "2026-07-17", 9, subdir="a"),
+            _photo("IMG_1.jpeg", "2026-07-17", 10, subdir="b"),
+            _photo("IMG_1-2.jpeg", "2026-07-17", 11, subdir="c"),
+        ]
+    )
+    ids = [p.photo_id for p in photos]
+    assert ids == ["IMG_1", "IMG_1-2", "IMG_1-2-2"]
+    assert len(set(ids)) == 3
+
+
+def test_assign_ids_is_stable_regardless_of_input_order():
+    """assign_ids produces the same id for the same source regardless of order."""
+    photos = [
+        _photo("IMG_0001.jpeg", "2026-07-17", 9, subdir="a"),
+        _photo("IMG_0001.jpeg", "2026-07-17", 10, subdir="b"),
+        _photo("IMG_0001.jpeg", "2026-07-17", 11, subdir="c"),
+    ]
+
+    # Forward order
+    ids_forward = {str(p.source): p.photo_id for p in assign_ids(photos)}
+
+    # Reversed order
+    ids_reversed = {str(p.source): p.photo_id for p in assign_ids(list(reversed(photos)))}
+
+    assert ids_forward == ids_reversed
 
 
 def test_empty_input_yields_an_empty_manifest_not_a_crash():
