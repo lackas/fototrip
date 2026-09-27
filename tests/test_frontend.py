@@ -63,7 +63,11 @@ def test_zoomed_out_shows_clusters_not_every_marker(page, site_url):
 def test_zooming_into_one_place_reveals_individual_thumbnails(page, site_url):
     url, _ = site_url
     _ready(page, url)
-    page.evaluate("window.fototrip.map.setView([-25.6858, -54.4435], 17)")
+    # IMG_4's coordinates, not the IGUAZU pair: two markers at the exact same
+    # point can only be split apart by a click-triggered spiderfy, never by
+    # zooming alone, so asserting on them here would demand behaviour the
+    # clustering library does not provide. IMG_4 sits ~11 km away, alone.
+    page.evaluate("window.fototrip.map.setView([-25.60, -54.50], 17)")
     page.wait_for_timeout(500)
     assert page.locator(".photo-marker").count() >= 1
 
@@ -79,8 +83,33 @@ def test_clicking_a_marker_opens_the_lightbox(page, site_url):
 def test_lightbox_next_and_prev_walk_chronologically(page, site_url):
     url, _ = site_url
     _ready(page, url)
-    page.evaluate("window.fototrip.openLightboxAt(0)")
+    # PhotoSwipe's Keyboard module binds its document-level keydown listener
+    # from inside the 'bindEvents' event (fired once, after the opening
+    # animation) rather than at construction time. Pressing a key before that
+    # fires is a silent no-op. So hook 'bindEvents' itself, right as the
+    # lightbox is opened, and wait for it before sending the first key —
+    # that is the exact event whose handler calls
+    # pswp.events.add(document, 'keydown', ...), not just a plausible proxy
+    # for it (confirmed by reading vendor/photoswipe/photoswipe.esm.js: the
+    # Keyboard class registers on 'bindEvents' in its constructor and its
+    # callback adds the document keydown listener synchronously).
+    page.evaluate(
+        """() => {
+          window.__pswpBound = false;
+          window.fototrip.openLightboxAt(0);
+          const attach = () => {
+            const pswp = window.fototrip.lightbox.pswp;
+            if (pswp) {
+              pswp.on('bindEvents', () => { window.__pswpBound = true; });
+            } else {
+              requestAnimationFrame(attach);
+            }
+          };
+          attach();
+        }"""
+    )
     page.wait_for_selector(".pswp", state="visible")
+    page.wait_for_function("window.__pswpBound === true")
     assert page.evaluate("window.fototrip.lightbox.pswp.currIndex") == 0
     page.keyboard.press("ArrowRight")
     page.wait_for_timeout(250)
