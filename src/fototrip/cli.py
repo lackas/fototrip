@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from fototrip.cache import BuildCache
 from fototrip.images import Derivatives, build_derivatives
@@ -49,10 +49,19 @@ class BuildReport:
 
 
 def _derive_one(photo: Photo, *, out_dir: Path, thumb_px: int, web_px: int):
-    """Build one photo's derivatives. Runs in a worker process."""
-    return photo, build_derivatives(
-        photo.source, photo.photo_id, out_dir, thumb_px=thumb_px, web_px=web_px
-    )
+    """Build one photo's derivatives. Runs in a worker process.
+
+    Returns `(photo, None)` instead of raising when the source can no longer be
+    read here: a file that Photos deleted or is still writing between the scan
+    and this stage must not bring down the rest of the build.
+    """
+    try:
+        derivatives = build_derivatives(
+            photo.source, photo.photo_id, out_dir, thumb_px=thumb_px, web_px=web_px
+        )
+    except (OSError, UnidentifiedImageError, SyntaxError):
+        return photo, None
+    return photo, derivatives
 
 
 @click.group()
@@ -99,11 +108,18 @@ def build(folder, out_dir, title, subtitle, thumb_px, web_px) -> None:
 
     entries = []
     for photo, thumb_rel, web_rel in fresh:
-        # Pillow reads only the JPEG header here, so this stays cheap.
-        with Image.open(out_dir / web_rel) as existing:
-            width, height = existing.size
+        try:
+            # Pillow reads only the JPEG header here, so this stays cheap.
+            with Image.open(out_dir / web_rel) as existing:
+                width, height = existing.size
+        except (OSError, UnidentifiedImageError, SyntaxError):
+            # The cache said this was fresh, but the file itself is broken (for
+            # example clobbered out-of-band). Rebuild it like any other stale
+            # photo instead of failing the whole command.
+            stale.append(photo)
+            continue
         entries.append((photo, Derivatives(thumb_rel, web_rel, width, height)))
-    report.cached = len(fresh)
+    report.cached = len(entries)
 
     if stale:
         worker = functools.partial(_derive_one, out_dir=out_dir, thumb_px=thumb_px, web_px=web_px)
@@ -112,9 +128,15 @@ def build(folder, out_dir, title, subtitle, thumb_px, web_px) -> None:
             click.progressbar(length=len(stale), label="derivatives") as progress,
         ):
             for photo, derivatives in pool.map(worker, stale, chunksize=8):
-                entries.append((photo, derivatives))
-                cache.record(photo.source)
-                report.written += 1
+                if derivatives is None:
+                    # Deleted, rewritten, or otherwise unreadable between the scan
+                    # and this stage. Not fatal: skip it, and leave the cache
+                    # untouched so the next run retries it.
+                    report.skipped[SkipReason.UNREADABLE] += 1
+                else:
+                    entries.append((photo, derivatives))
+                    cache.record(photo.source)
+                    report.written += 1
                 progress.update(1)
     cache.save()
 

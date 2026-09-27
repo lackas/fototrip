@@ -1,7 +1,9 @@
 import json
 
 from click.testing import CliRunner
+from PIL import Image
 
+from fototrip import cli
 from fototrip.cli import main
 from tests.conftest import BUENOS_AIRES, COLOGNE, IGUAZU
 
@@ -89,3 +91,91 @@ def test_title_flag_overrides_the_folder_name(make_jpeg, tmp_path):
     out = tmp_path / "site"
     CliRunner().invoke(main, ["build", str(trip), "-o", str(out), "--title", "Argentina 2026"])
     assert "<title>Argentina 2026</title>" in (out / "index.html").read_text()
+
+
+def test_one_photo_failing_during_derivative_generation_does_not_crash_the_build(
+    make_jpeg, tmp_path, monkeypatch
+):
+    """A file that goes away between the metadata scan and the derivative stage
+    (Photos still writing the export, a permission hiccup, ...) must be skipped,
+    not crash the whole pool.
+
+    `ProcessPoolExecutor` uses the 'spawn' start method here, so a worker
+    process re-imports `fototrip.cli` fresh: monkeypatching
+    `fototrip.cli.build_derivatives` in this process does not reach it (verified
+    separately). Deleting the victim's source file inside a patched
+    `assign_ids` -- which runs in the parent, before the pool starts -- creates
+    a real, physical failure that the unpatched worker genuinely hits.
+    """
+    trip = make_jpeg("good.jpeg").parent
+    victim = make_jpeg("victim.jpeg", lat=IGUAZU[0], lon=IGUAZU[1])
+    out = tmp_path / "site"
+
+    real_assign_ids = cli.assign_ids
+
+    def _assign_ids_then_delete_victim(photos):
+        assigned = real_assign_ids(photos)
+        victim.unlink()
+        return assigned
+
+    monkeypatch.setattr(cli, "assign_ids", _assign_ids_then_delete_victim)
+
+    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert "unreadable or truncated image" in result.output
+    manifest = json.loads((out / "photos.json").read_text())
+    assert len(manifest["photos"]) == 1
+    assert manifest["photos"][0]["id"] == "good"
+
+    # No cache.record() for the failure means a later run retries it. Undo the
+    # patch first: it would delete the recreated file all over again otherwise.
+    monkeypatch.undo()
+    make_jpeg("victim.jpeg", lat=IGUAZU[0], lon=IGUAZU[1])
+    second = CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+    assert second.exit_code == 0, second.output
+    assert len(json.loads((out / "photos.json").read_text())["photos"]) == 2
+
+
+def test_a_corrupted_cached_derivative_is_rebuilt_not_fatal(make_jpeg, tmp_path):
+    """BuildCache.is_fresh only checks that the output file exists, never that
+    it is readable. A derivative truncated or clobbered out-of-band while the
+    cache still calls it fresh must trigger a rebuild, not a crash."""
+    trip = make_jpeg("IMG_1.jpeg").parent
+    out = tmp_path / "site"
+    CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    web = out / "web" / "IMG_1.jpg"
+    web.write_bytes(b"not a jpeg")  # corrupt the derivative, cache file untouched
+
+    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    assert result.exit_code == 0, result.output
+    manifest = json.loads((out / "photos.json").read_text())
+    assert len(manifest["photos"]) == 1
+    with Image.open(web) as image:
+        image.load()  # rebuilt into a valid JPEG, not left corrupted
+
+
+def test_warm_build_does_not_rewrite_unchanged_derivatives(make_jpeg, tmp_path):
+    """The spec requires that re-running the build only processes new files.
+    JPEG encoding here is deterministic, so a redundant rewrite is
+    byte-identical -- mtime is the only signal that separates "skipped" from
+    "recomputed"."""
+    trip = make_jpeg("IMG_1.jpeg").parent
+    out = tmp_path / "site"
+    CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    thumb = out / "thumb" / "IMG_1.jpg"
+    web = out / "web" / "IMG_1.jpg"
+    thumb_before = thumb.stat().st_mtime_ns
+    web_before = web.stat().st_mtime_ns
+
+    make_jpeg("IMG_2.jpeg", lat=BUENOS_AIRES[0], lon=BUENOS_AIRES[1])
+    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert thumb.stat().st_mtime_ns == thumb_before
+    assert web.stat().st_mtime_ns == web_before
+    assert (out / "thumb" / "IMG_2.jpg").exists()
+    assert (out / "web" / "IMG_2.jpg").exists()
