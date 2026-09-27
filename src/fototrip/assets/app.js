@@ -127,7 +127,12 @@ async function boot() {
 
 /* ---- day strip ------------------------------------------------------- */
 
-const TIMELINE_MAX_BAR = 56; // px, matches --timeline-h in app.css
+// px. #timeline is 92px tall with 8px top/bottom padding, so its content box
+// is 76px (measured: clientHeight 92, padding 8+8). A .day-cell stacks the
+// bar, a 4px gap, and a two-line label (measured: 28px at font-size 10px /
+// line-height 1.4). 76 - 4 - 28 = 44 is the largest bar that still fits
+// without #timeline's overflow-y: hidden clipping it.
+const TIMELINE_MAX_BAR = 44;
 
 function selectDay(day) {
   state.selectedDay = day;
