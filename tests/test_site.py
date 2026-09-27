@@ -1,4 +1,5 @@
 import json
+import locale
 
 from fototrip.site import TripConfig, render_site
 
@@ -87,3 +88,31 @@ def test_rerender_replaces_stale_manifest(tmp_path):
     render_site(MANIFEST, TripConfig(title="T"), tmp_path)
     render_site({"photos": [], "days": [], "bounds": None}, TripConfig(title="T"), tmp_path)
     assert json.loads((tmp_path / "photos.json").read_text())["photos"] == []
+
+
+def test_non_ascii_title_written_as_utf8_regardless_of_locale(tmp_path):
+    """render_site must write UTF-8 explicitly, so a title with an em dash or an accented
+    character survives a build under a non-UTF-8 process locale (e.g. a C/POSIX locale in
+    a container or cron job), instead of raising UnicodeEncodeError or writing mojibake."""
+    title = "Argentinien-Reise — Iguazú"
+    saved_locale = locale.setlocale(locale.LC_ALL, None)
+    try:
+        locale.setlocale(locale.LC_ALL, "C")
+        render_site(MANIFEST, TripConfig(title=title), tmp_path)
+    finally:
+        locale.setlocale(locale.LC_ALL, saved_locale)
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert title in html
+
+
+def test_rerender_removes_stale_vendor_files(tmp_path):
+    """A rebuild must not leave orphaned files from a previous vendor tree behind."""
+    render_site(MANIFEST, TripConfig(title="T"), tmp_path)
+    orphan = tmp_path / "vendor" / "old-lib" / "old.js"
+    orphan.parent.mkdir(parents=True)
+    orphan.write_text("stale")
+
+    render_site(MANIFEST, TripConfig(title="T"), tmp_path)
+
+    assert not orphan.exists()
+    assert (tmp_path / "vendor" / "leaflet" / "leaflet.js").exists()

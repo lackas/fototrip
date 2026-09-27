@@ -30,7 +30,11 @@ class TripConfig:
         if toml_path.exists():
             allowed = {f for f in cls.__dataclass_fields__}
             values.update(
-                {k: v for k, v in tomllib.loads(toml_path.read_text()).items() if k in allowed}
+                {
+                    k: v
+                    for k, v in tomllib.loads(toml_path.read_text(encoding="utf-8")).items()
+                    if k in allowed
+                }
             )
         values.update({k: v for k, v in overrides.items() if v is not None})
         return cls(**values)
@@ -46,6 +50,8 @@ def render_site(manifest: dict, config: TripConfig, out_dir: Path) -> None:
 
     env = Environment(
         loader=FileSystemLoader(_package_dir("templates")),
+        # "index.html.j2" ends in ".j2", so that is the entry actually matching this
+        # template's filename and turning autoescaping on; "html" never matches it.
         autoescape=select_autoescape(["html", "j2"]),
     )
     html = env.get_template("index.html.j2").render(
@@ -54,10 +60,13 @@ def render_site(manifest: dict, config: TripConfig, out_dir: Path) -> None:
         tile_url=config.tile_url,
         tile_attribution=config.tile_attribution,
     )
-    (out_dir / "index.html").write_text(html)
-    (out_dir / "photos.json").write_text(json.dumps(manifest, separators=(",", ":")))
+    (out_dir / "index.html").write_text(html, encoding="utf-8")
+    (out_dir / "photos.json").write_text(
+        json.dumps(manifest, separators=(",", ":")), encoding="utf-8"
+    )
 
     assets = _package_dir("assets")
     for name in ("app.js", "app.css"):
         shutil.copyfile(assets / name, out_dir / name)
-    shutil.copytree(assets / "vendor", out_dir / "vendor", dirs_exist_ok=True)
+    shutil.rmtree(out_dir / "vendor", ignore_errors=True)
+    shutil.copytree(assets / "vendor", out_dir / "vendor")
