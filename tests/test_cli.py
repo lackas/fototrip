@@ -89,6 +89,72 @@ def test_missing_folder_exits_nonzero(tmp_path):
     assert result.exit_code != 0
 
 
+def test_every_derivative_failing_exits_nonzero_with_a_clear_message(
+    make_jpeg, tmp_path, monkeypatch
+):
+    """The comment justifying _derive_one's broad `except Exception` promises
+    that a systematic failure "exits non-zero if nothing could be included."
+    Nothing enforced that: every photo passing metadata but every derivative
+    failing left `entries` empty, and the build wrote an empty site and
+    exited 0. Corrupting every source right before the derivative stage (in
+    the parent process, like the single-victim test above) makes every
+    worker's real, unpatched `build_derivatives` call fail for a genuine
+    reason."""
+    trip = make_jpeg("IMG_1.jpeg").parent
+    make_jpeg("IMG_2.jpeg", lat=IGUAZU[0], lon=IGUAZU[1])
+    out = tmp_path / "site"
+
+    real_assign_ids = cli.assign_ids
+
+    def _assign_ids_then_corrupt_every_source(photos):
+        assigned = real_assign_ids(photos)
+        for photo in assigned:
+            photo.source.write_bytes(b"not a jpeg")
+        return assigned
+
+    monkeypatch.setattr(cli, "assign_ids", _assign_ids_then_corrupt_every_source)
+
+    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    assert result.exit_code != 0
+    assert "no photos could be included" in result.output.lower()
+    assert "0 photos included" in result.output
+    assert not (out / "photos.json").exists()
+
+
+def test_relative_and_absolute_folder_paths_share_cache_hits(make_jpeg, tmp_path, monkeypatch):
+    """The cache used to key on the folder argument exactly as given, so
+    building the same trip once with a relative path and once with an
+    absolute one looked like two different trips and re-encoded everything."""
+    trip = make_jpeg("IMG_1.jpeg").parent
+    out = tmp_path / "site"
+
+    first = CliRunner().invoke(main, ["build", str(trip.resolve()), "-o", str(out)])
+    assert first.exit_code == 0, first.output
+
+    monkeypatch.chdir(trip.parent)
+    relative = trip.relative_to(trip.parent)
+    second = CliRunner().invoke(main, ["build", str(relative), "-o", str(out)])
+
+    assert second.exit_code == 0, second.output
+    assert "1 cached" in second.output
+
+
+def test_changing_thumb_px_invalidates_only_the_thumb_cache_key(make_jpeg, tmp_path):
+    """A warm re-run with a different --thumb-px must not report the old-sized
+    thumbnail as cached -- the size is part of what makes a derivative
+    "current"."""
+    trip = make_jpeg("IMG_1.jpeg").parent
+    out = tmp_path / "site"
+    CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out), "--thumb-px", "128"])
+
+    assert result.exit_code == 0, result.output
+    assert "1 written" in result.output
+    assert Image.open(out / "thumb" / "IMG_1.jpg").size == (128, 128)
+
+
 def test_title_flag_overrides_the_folder_name(make_jpeg, tmp_path):
     trip = make_jpeg("IMG_1.jpeg").parent
     out = tmp_path / "site"

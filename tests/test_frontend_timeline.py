@@ -20,7 +20,7 @@ def test_all_days_is_selected_on_load(page, site_url):
     assert selected.count() == 1
     assert "all" in selected.get_attribute("class")
     assert page.evaluate("window.fototrip.state.selectedDay") is None
-    assert page.evaluate("window.fototrip.state.visible.length") == 5
+    assert page.evaluate("window.fototrip.state.visible.length") == 6
 
 
 def test_selecting_a_day_filters_the_visible_set(page, site_url):
@@ -28,7 +28,7 @@ def test_selecting_a_day_filters_the_visible_set(page, site_url):
     _ready(page, url)
     page.click('.day-cell[data-day="2026-07-19"]')
     page.wait_for_timeout(300)
-    assert page.evaluate("window.fototrip.state.visible.length") == 3
+    assert page.evaluate("window.fototrip.state.visible.length") == 4
     assert page.evaluate("window.fototrip.state.visible.every(p => p.day === '2026-07-19')")
 
 
@@ -90,7 +90,7 @@ def test_returning_to_all_days_restores_every_photo(page, site_url):
     page.wait_for_timeout(200)
     page.click(".day-cell.all")
     page.wait_for_timeout(300)
-    assert page.evaluate("window.fototrip.state.visible.length") == 5
+    assert page.evaluate("window.fototrip.state.visible.length") == 6
 
 
 def test_lightbox_only_walks_the_selected_day(page, site_url):
@@ -100,7 +100,7 @@ def test_lightbox_only_walks_the_selected_day(page, site_url):
     page.wait_for_timeout(200)
     page.evaluate("window.fototrip.openLightboxAt(0)")
     page.wait_for_selector(".pswp", state="visible")
-    assert page.evaluate("window.fototrip.lightbox.pswp.getNumItems()") == 3
+    assert page.evaluate("window.fototrip.lightbox.pswp.getNumItems()") == 4
 
 
 def test_arrow_keys_step_between_days(page, site_url):

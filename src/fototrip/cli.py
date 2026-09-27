@@ -12,7 +12,7 @@ import click
 from PIL import Image
 
 from fototrip.cache import BuildCache
-from fototrip.images import Derivatives, build_derivatives
+from fototrip.images import THUMB_DIR, WEB_DIR, Derivatives, build_derivatives
 from fototrip.localtime import Localizer
 from fototrip.manifest import assign_ids, build_manifest
 from fototrip.metadata import read_photo
@@ -103,12 +103,12 @@ def build(folder, out_dir, title, subtitle, thumb_px, web_px) -> None:
         raise click.ClickException(f"no photos with usable GPS and timestamps in {folder}")
 
     photos = assign_ids(photos)
-    cache = BuildCache(out_dir / CACHE_FILENAME)
+    cache = BuildCache(out_dir / CACHE_FILENAME, root=folder, thumb_px=thumb_px, web_px=web_px)
 
     fresh, stale = [], []
     for photo in photos:
-        thumb_rel = f"thumb/{photo.photo_id}.jpg"
-        web_rel = f"web/{photo.photo_id}.jpg"
+        thumb_rel = f"{THUMB_DIR}/{photo.photo_id}.jpg"
+        web_rel = f"{WEB_DIR}/{photo.photo_id}.jpg"
         if cache.is_fresh(photo.source, [out_dir / thumb_rel, out_dir / web_rel]):
             fresh.append((photo, thumb_rel, web_rel))
         else:
@@ -131,28 +131,40 @@ def build(folder, out_dir, title, subtitle, thumb_px, web_px) -> None:
         entries.append((photo, Derivatives(thumb_rel, web_rel, width, height)))
     report.cached = len(entries)
 
-    if stale:
-        worker = functools.partial(_derive_one, out_dir=out_dir, thumb_px=thumb_px, web_px=web_px)
-        with (
-            ProcessPoolExecutor() as pool,
-            click.progressbar(length=len(stale), label="derivatives") as progress,
-        ):
-            for photo, derivatives in pool.map(worker, stale, chunksize=8):
-                if derivatives is None:
-                    # Deleted, rewritten, or otherwise unreadable between the scan
-                    # and this stage. Not fatal: skip it, and leave the cache
-                    # untouched so the next run retries it.
-                    report.skipped[SkipReason.UNREADABLE] += 1
-                else:
-                    entries.append((photo, derivatives))
-                    cache.record(photo.source)
-                    report.written += 1
-                progress.update(1)
-    cache.save()
+    try:
+        if stale:
+            worker = functools.partial(
+                _derive_one, out_dir=out_dir, thumb_px=thumb_px, web_px=web_px
+            )
+            with (
+                ProcessPoolExecutor() as pool,
+                click.progressbar(length=len(stale), label="derivatives") as progress,
+            ):
+                for photo, derivatives in pool.map(worker, stale, chunksize=8):
+                    if derivatives is None:
+                        # Deleted, rewritten, or otherwise unreadable between the scan
+                        # and this stage. Not fatal: skip it, and leave the cache
+                        # untouched so the next run retries it.
+                        report.skipped[SkipReason.UNREADABLE] += 1
+                    else:
+                        entries.append((photo, derivatives))
+                        cache.record(photo.source)
+                        report.written += 1
+                    progress.update(1)
+    finally:
+        # Save on the way out even on Ctrl-C or any other interruption: the
+        # derivatives already written to disk should not have to be redone
+        # just because the cache record of them was lost.
+        cache.save()
 
     manifest = build_manifest(entries)
     report.included = len(manifest["photos"])
     report.days = len(manifest["days"])
+
+    if not manifest["photos"]:
+        click.echo(report.render())
+        raise click.ClickException("no photos could be included in the build")
+
     render_site(manifest, TripConfig.load(folder, title=title, subtitle=subtitle), out_dir)
 
     click.echo(report.render())

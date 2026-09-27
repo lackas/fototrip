@@ -31,21 +31,31 @@ const clusterGroup = L.markerClusterGroup({
   iconCreateFunction: (cluster) => {
     const children = cluster.getAllChildMarkers();
     // Show the newest photo in the cluster, so the icon changes as you zoom.
+    // Compare real instants, not the ISO strings themselves: this trip's
+    // timestamps carry different UTC offsets, so a lexicographic string
+    // compare does not agree with time order.
     const newest = children.reduce((a, b) =>
-      a.options.photo.t >= b.options.photo.t ? a : b
+      Date.parse(a.options.photo.t) >= Date.parse(b.options.photo.t) ? a : b
     );
     const count = cluster.getChildCount();
-    return L.divIcon({
-      className: "",
-      iconSize: [54, 54],
-      html:
-        `<div class="cluster-marker" style="background-image:url('${newest.options.photo.thumb}')">` +
-        `<span class="count">${count}</span></div>`,
-    });
+    // Built as a real element rather than an HTML template string: the
+    // thumbnail path becomes a CSS value assignment, never markup, so a
+    // filename with a quote or '#' can't break out of an attribute.
+    const div = document.createElement("div");
+    div.className = "cluster-marker";
+    div.style.backgroundImage = `url('${newest.options.photo.thumb}')`;
+    const badge = document.createElement("span");
+    badge.className = "count";
+    badge.textContent = String(count);
+    div.appendChild(badge);
+    return L.divIcon({ className: "", iconSize: [54, 54], html: div });
   },
 }).addTo(map);
 
 function markerFor(photo, index) {
+  const div = document.createElement("div");
+  div.className = "photo-marker";
+  div.style.backgroundImage = `url('${photo.thumb}')`;
   const marker = L.marker([photo.lat, photo.lon], {
     photo,
     title: new Date(photo.t).toLocaleString(),
@@ -53,7 +63,7 @@ function markerFor(photo, index) {
       className: "",
       iconSize: [44, 44],
       iconAnchor: [22, 22],
-      html: `<div class="photo-marker" style="background-image:url('${photo.thumb}')"></div>`,
+      html: div,
     }),
   });
   marker.on("click", () => openLightboxAt(index));
@@ -115,14 +125,24 @@ function openLightboxAt(index) {
 }
 
 async function boot() {
-  const response = await fetch("photos.json");
-  const manifest = await response.json();
-  state.photos = manifest.photos;
-  state.days = manifest.days;
-  state.bounds = manifest.bounds;
-  renderTimeline();
-  selectDay(null);
-  window.dispatchEvent(new CustomEvent("fototrip:loaded"));
+  try {
+    const response = await fetch("photos.json");
+    if (!response.ok) {
+      throw new Error(`photos.json: HTTP ${response.status}`);
+    }
+    const manifest = await response.json();
+    state.photos = manifest.photos;
+    state.days = manifest.days;
+    state.bounds = manifest.bounds;
+    renderTimeline();
+    selectDay(null);
+    window.dispatchEvent(new CustomEvent("fototrip:loaded"));
+  } catch (error) {
+    const status = document.getElementById("status");
+    if (status) {
+      status.textContent = `Could not load photos.json: ${error.message}`;
+    }
+  }
 }
 
 /* ---- day strip ------------------------------------------------------- */

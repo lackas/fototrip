@@ -1,9 +1,12 @@
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fototrip.images import Derivatives
 from fototrip.manifest import assign_ids, build_manifest
 from fototrip.models import Photo
+
+_SAFE_ID = re.compile(r"[A-Za-z0-9._-]+")
 
 
 def _photo(name, day, hour, lat=-25.6, lon=-54.4, subdir=""):
@@ -144,3 +147,32 @@ def test_empty_input_yields_an_empty_manifest_not_a_crash():
     assert result["photos"] == []
     assert result["days"] == []
     assert result["bounds"] is None
+
+
+def test_adversarial_filenames_produce_safe_and_unique_ids():
+    """photo_id is minted from the raw filename stem and then reaches the
+    frontend inside an HTML attribute (a CSS `url(...)` in a `style`) and
+    inside a URL. An apostrophe or quote can end the CSS string or the
+    attribute early; '#' is a URL fragment delimiter; a space is merely
+    ugly. All of it must be replaced with a plainly safe character before
+    the id is used anywhere, and two names that collide after sanitising
+    must still get distinct ids."""
+    photos = assign_ids(
+        [
+            _photo("Hannah's birthday.jpeg", "2026-07-17", 9),
+            _photo('quote".jpeg', "2026-07-17", 10),
+            _photo("hash#1.jpeg", "2026-07-17", 11),
+            _photo("has space.jpeg", "2026-07-17", 12),
+            # These two sanitise to the same string ("weird_1") and must not
+            # collapse into one id.
+            _photo("weird#1.jpeg", "2026-07-17", 13),
+            _photo("weird_1.jpeg", "2026-07-17", 14),
+        ]
+    )
+    ids = [p.photo_id for p in photos]
+
+    assert all(_SAFE_ID.fullmatch(photo_id) for photo_id in ids)
+    assert len(set(ids)) == len(ids)
+
+    weird_ids = {p.photo_id for p in photos if "weird" in str(p.source)}
+    assert len(weird_ids) == 2

@@ -18,19 +18,38 @@ python3 -m venv ~/src/venv/fototrip
 ~/src/venv/fototrip/bin/fototrip serve site
 ```
 
+`build` flags: `-o/--out` (default `site`), `--title` and `--subtitle`
+(override `trip.toml` and the folder name), `--thumb-px` (default 96, the
+square marker/cluster thumbnail) and `--web-px` (default 1600, the long-edge
+cap on the lightbox image). `serve` takes `-p/--port` (default 8000).
+
 The output in `site/` is fully static: copy it anywhere that serves files. It
-needs no API key and fetches nothing from a CDN at runtime.
+needs no API key and fetches nothing from a CDN at runtime. The one exception
+is `.fototrip-cache.json` (see below) — it is build metadata for `fototrip`
+itself, not something the site needs, so it does not need to be uploaded
+alongside the rest of `site/`.
 
 Optional `trip.toml` in the photo folder, overridden by the CLI flags:
 
 ```toml
 title = "Argentina 2026"
 subtitle = "Iguazu, Buenos Aires"
+tile_url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+tile_attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 ```
 
-A build is incremental: it caches derivatives by each source file's size and
-mtime in `<out>/.fototrip-cache.json`, so re-running after adding a few photos
-only processes what changed.
+`tile_url` and `tile_attribution` override the default OpenStreetMap tiles —
+for example to point at a different provider. Both default to OpenStreetMap
+if omitted.
+
+A build is incremental: it caches derivatives by each source file's path
+(relative to the trip folder), size and mtime, plus the `--thumb-px`/
+`--web-px` in effect, in `<out>/.fototrip-cache.json`, so re-running after
+adding a few photos only processes what changed, and changing either size
+flag only rebuilds what that size actually affects. The key is relative to
+the trip folder rather than absolute, so the cache file — which lives inside
+the folder the rest of this README tells you to publish — never carries your
+home directory or folder layout.
 
 ## How days are decided
 
@@ -61,8 +80,10 @@ Buenos Aires coordinates; fototrip resolves that to local time
 ## Development
 
 ```bash
+~/src/venv/fototrip/bin/pip install -e ".[dev]"
+~/src/venv/fototrip/bin/playwright install chromium   # once, for the browser tests
 ~/src/venv/fototrip/bin/pytest            # everything
-~/src/venv/fototrip/bin/pytest -k frontend  # browser tests, needs: playwright install chromium
+~/src/venv/fototrip/bin/pytest -k frontend  # browser tests only
 ~/src/venv/fototrip/bin/ruff format src tests
 ```
 

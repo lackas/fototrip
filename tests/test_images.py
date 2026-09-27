@@ -46,3 +46,4 @@ def test_outputs_carry_no_exif(make_jpeg, tmp_path):
     """Derivatives must not leak the original GPS tags as well as the JSON."""
     build_derivatives(make_jpeg(), "IMG_1", tmp_path / "out")
     assert not Image.open(tmp_path / "out" / "web" / "IMG_1.jpg").getexif()
+    assert not Image.open(tmp_path / "out" / "thumb" / "IMG_1.jpg").getexif()

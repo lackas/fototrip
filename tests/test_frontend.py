@@ -11,15 +11,59 @@ def _ready(page, url):
 def test_manifest_has_the_expected_shape(site_url):
     _, out = site_url
     manifest = json.loads((out / "photos.json").read_text())
-    assert len(manifest["photos"]) == 5
-    assert [d["count"] for d in manifest["days"]] == [1, 3, 1]
+    assert len(manifest["photos"]) == 6
+    assert [d["count"] for d in manifest["days"]] == [1, 4, 1]
+
+
+def test_the_after_midnight_iguazu_photo_files_under_the_earlier_local_day(site_url):
+    """Pins the project's core property end to end: IMG_6 carries the naive
+    stamp 2026-07-20T01:30:00+02:00 at Iguazu coordinates. A naive read of
+    the raw stamp would file it under 2026-07-20; resolved from its
+    coordinates it is 2026-07-19T20:30:00-03:00, one local day earlier --
+    exactly the real IMG_6842 case described in the README."""
+    _, out = site_url
+    manifest = json.loads((out / "photos.json").read_text())
+    entry = next(p for p in manifest["photos"] if p["id"] == "IMG_6")
+    assert entry["t"] == "2026-07-19T20:30:00-03:00"
+    assert entry["day"] == "2026-07-19"
 
 
 def test_all_photos_load_into_the_page(page, site_url):
     url, _ = site_url
     _ready(page, url)
-    assert page.evaluate("window.fototrip.state.photos.length") == 5
-    assert page.evaluate("window.fototrip.state.visible.length") == 5
+    assert page.evaluate("window.fototrip.state.photos.length") == 6
+    assert page.evaluate("window.fototrip.state.visible.length") == 6
+
+
+def test_thumbnail_images_actually_load(page, site_url):
+    """No existing assertion proves a marker's background image ever
+    actually loaded -- a broken `thumb` URL (e.g. an unsanitised filename
+    ending the CSS string or 404ing on a stray '#') would still pass every
+    other test here, since none of them inspect the image itself. Load the
+    URL for real and check it decoded to a non-empty image."""
+    url, _ = site_url
+    _ready(page, url)
+    page.evaluate("window.fototrip.map.setView([-25.60, -54.50], 17)")
+    page.wait_for_timeout(500)
+    thumb_url = page.evaluate(
+        """() => {
+          const el = document.querySelector('.photo-marker');
+          const bg = getComputedStyle(el).backgroundImage;
+          const match = /url\\((['"]?)(.*?)\\1\\)/.exec(bg);
+          return match ? match[2] : null;
+        }"""
+    )
+    assert thumb_url, "no .photo-marker with a background-image was found"
+    natural_width = page.evaluate(
+        """(src) => new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve(img.naturalWidth);
+          img.onerror = () => resolve(0);
+          img.src = src;
+        })""",
+        thumb_url,
+    )
+    assert natural_width > 0, f"thumbnail at {thumb_url!r} did not load"
 
 
 def test_zoomed_out_shows_clusters_not_every_marker(page, site_url):

@@ -1,5 +1,6 @@
 """Assemble the single JSON payload the frontend loads."""
 
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -8,9 +9,16 @@ from fototrip.models import Photo
 
 _COORD_PRECISION = 6
 
+# photo_id becomes both a JSON field the frontend puts into the DOM (thumb/web
+# URLs) and a real filename on disk, so it is restricted to a plainly safe
+# character set. Anything else -- quotes, '#', spaces, path separators -- is
+# replaced before the uniqueness loop runs, so two different names that
+# sanitise to the same string still can't collide.
+_UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+
 
 def assign_ids(photos: list[Photo]) -> list[Photo]:
-    """Give each photo a filesystem-safe id, unique within the trip.
+    """Give each photo a filesystem- and markup-safe id, unique within the trip.
 
     Ids are filename stems because they are recognisable, but two subfolders can
     hold the same stem, so later duplicates get a numeric suffix.
@@ -21,7 +29,7 @@ def assign_ids(photos: list[Photo]) -> list[Photo]:
     used_ids = set()
     result = []
     for photo in sorted_photos:
-        stem = Path(photo.source).stem
+        stem = _UNSAFE_CHARS.sub("_", Path(photo.source).stem) or "photo"
 
         # Find the next available id with this stem, bumping counter until unused
         counter = 1

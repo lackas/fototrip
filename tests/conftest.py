@@ -73,6 +73,15 @@ def site_url(make_jpeg, tmp_path):
     make_jpeg("IMG_3.jpeg", lat=IGUAZU[0], lon=IGUAZU[1], stamp="2026:07:19 11:00:02")
     make_jpeg("IMG_4.jpeg", lat=-25.60, lon=-54.50, stamp="2026:07:19 15:12:12")
     make_jpeg("IMG_5.jpeg", lat=BUENOS_AIRES[0], lon=BUENOS_AIRES[1], stamp="2026:07:31 15:02:29")
+    # Mirrors the real IMG_6842 case: a naive stamp just after midnight on the
+    # camera's German clock, at Iguazu coordinates, resolves to local evening
+    # of the *previous* day. Pins the project's core property (day-from-
+    # coordinates, not day-from-raw-stamp) through the full CLI build rather
+    # than only inside localtime.py's own unit tests. Same day bucket as
+    # IMG_2/IMG_3/IMG_4 (2026-07-19), so it does not add a fourth day.
+    make_jpeg(
+        "IMG_6.jpeg", lat=IGUAZU[0], lon=IGUAZU[1], stamp="2026:07:20 01:30:00", offset="+02:00"
+    )
 
     out = tmp_path / "site"
     result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out), "--title", "AR"])
