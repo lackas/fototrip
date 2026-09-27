@@ -120,10 +120,76 @@ async function boot() {
   state.photos = manifest.photos;
   state.days = manifest.days;
   state.bounds = manifest.bounds;
-  setVisible(state.photos);
+  renderTimeline();
+  selectDay(null);
   window.dispatchEvent(new CustomEvent("fototrip:loaded"));
 }
 
-window.fototrip = { state, map, clusterGroup, lightbox, setVisible, openLightboxAt, fitTo };
+/* ---- day strip ------------------------------------------------------- */
+
+const TIMELINE_MAX_BAR = 56; // px, matches --timeline-h in app.css
+
+function selectDay(day) {
+  state.selectedDay = day;
+  setVisible(day === null ? state.photos : state.photos.filter((p) => p.day === day));
+  for (const cell of document.querySelectorAll("#timeline .day-cell")) {
+    const cellDay = cell.dataset.day || null;
+    cell.setAttribute("aria-pressed", String(cellDay === day));
+  }
+}
+
+function renderTimeline() {
+  const timeline = document.getElementById("timeline");
+  if (!timeline) return;
+  timeline.textContent = "";
+
+  const busiest = Math.max(1, ...state.days.map((d) => d.count));
+
+  const all = document.createElement("button");
+  all.type = "button";
+  all.className = "day-cell all";
+  all.setAttribute("aria-pressed", "true");
+  all.innerHTML =
+    `<div class="bar" style="height:${TIMELINE_MAX_BAR}px"></div>` +
+    `<span>All<br>${state.photos.length}</span>`;
+  all.addEventListener("click", () => selectDay(null));
+  timeline.appendChild(all);
+
+  for (const entry of state.days) {
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = "day-cell";
+    cell.dataset.day = entry.day;
+    cell.setAttribute("aria-pressed", "false");
+    const height = Math.max(3, Math.round((entry.count / busiest) * TIMELINE_MAX_BAR));
+    const [, month, dayOfMonth] = entry.day.split("-");
+    cell.title = `${entry.day} — ${entry.count} photo${entry.count === 1 ? "" : "s"}`;
+    cell.innerHTML =
+      `<div class="bar" style="height:${height}px"></div>` +
+      `<span>${dayOfMonth}.${month}.<br>${entry.count}</span>`;
+    cell.addEventListener("click", () => selectDay(entry.day));
+    timeline.appendChild(cell);
+  }
+}
+
+/* Left/right step between days. "All" sits before the first day. */
+function stepDay(delta) {
+  const order = [null, ...state.days.map((d) => d.day)];
+  const current = order.indexOf(state.selectedDay);
+  const next = current + delta;
+  if (next >= 0 && next < order.length) selectDay(order[next]);
+}
+
+document.addEventListener("keydown", (event) => {
+  // PhotoSwipe owns the arrows while it is open.
+  if (document.querySelector(".pswp")) return;
+  if (event.key === "ArrowRight") stepDay(1);
+  else if (event.key === "ArrowLeft") stepDay(-1);
+});
+
+window.fototrip = {
+  state, map, clusterGroup, lightbox,
+  setVisible, openLightboxAt, fitTo, selectDay, stepDay, renderTimeline,
+};
 
 boot();

@@ -1,35 +1,6 @@
 """Browser tests against a real built site."""
 
 import json
-import threading
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-
-import pytest
-from click.testing import CliRunner
-
-from fototrip.cli import main
-from tests.conftest import BUENOS_AIRES, COLOGNE, IGUAZU
-
-
-@pytest.fixture
-def site_url(make_jpeg, tmp_path):
-    """Build a three-day trip and serve it. Two photos share coordinates."""
-    trip = make_jpeg("IMG_1.jpeg", lat=COLOGNE[0], lon=COLOGNE[1]).parent
-    make_jpeg("IMG_2.jpeg", lat=IGUAZU[0], lon=IGUAZU[1], stamp="2026:07:19 11:00:00")
-    make_jpeg("IMG_3.jpeg", lat=IGUAZU[0], lon=IGUAZU[1], stamp="2026:07:19 11:00:02")
-    make_jpeg("IMG_4.jpeg", lat=-25.60, lon=-54.50, stamp="2026:07:19 15:12:12")
-    make_jpeg("IMG_5.jpeg", lat=BUENOS_AIRES[0], lon=BUENOS_AIRES[1], stamp="2026:07:31 15:02:29")
-
-    out = tmp_path / "site"
-    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out), "--title", "AR"])
-    assert result.exit_code == 0, result.output
-
-    handler = partial(SimpleHTTPRequestHandler, directory=str(out))
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{server.server_port}/", out
-    server.shutdown()
 
 
 def _ready(page, url):
