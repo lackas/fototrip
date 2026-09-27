@@ -1,0 +1,47 @@
+{
+  "leaflet/images/marker-icon.png": {
+    "bytes": 1466,
+    "sha256": "574c3a5cca85f4114085b6841596d62f00d7c892c7b03f28cbfa301deb1dc437",
+    "url": "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png"
+  },
+  "leaflet/images/marker-shadow.png": {
+    "bytes": 618,
+    "sha256": "264f5c640339f042dd729062cfc04c17f8ea0f29882b538e3848ed8f10edb4da",
+    "url": "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png"
+  },
+  "leaflet/leaflet.css": {
+    "bytes": 14806,
+    "sha256": "a7837102824184820dfa198d1ebcd109ff6d0ff9a2672a074b9a1b4d147d04c6",
+    "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  },
+  "leaflet/leaflet.js": {
+    "bytes": 147552,
+    "sha256": "db49d009c841f5ca34a888c96511ae936fd9f5533e90d8b2c4d57596f4e5641a",
+    "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  },
+  "markercluster/MarkerCluster.css": {
+    "bytes": 872,
+    "sha256": "614dea0a98ff3f4ead74f04918f6b1d1b9ba435c25b5fc23b21a394d1e3e4d87",
+    "url": "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  },
+  "markercluster/markercluster.js": {
+    "bytes": 34136,
+    "sha256": "1e4e1d22972a3926f48598e0caf14e3fe7049835d428a344fed4f9e3665b3508",
+    "url": "https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"
+  },
+  "photoswipe/photoswipe-lightbox.esm.js": {
+    "bytes": 55080,
+    "sha256": "22e9efd9d6474af203893225ae891a1e44b0b9a7c17db61684c32bc6aba30c1a",
+    "url": "https://unpkg.com/photoswipe@5.4.4/dist/photoswipe-lightbox.esm.js"
+  },
+  "photoswipe/photoswipe.css": {
+    "bytes": 7423,
+    "sha256": "b0eaaae0b9de064d25e2f18517b9011a526d9b2142376e1c0febd096cebab9f3",
+    "url": "https://unpkg.com/photoswipe@5.4.4/dist/photoswipe.css"
+  },
+  "photoswipe/photoswipe.esm.js": {
+    "bytes": 189114,
+    "sha256": "8fb6d883c58b0df716d6cb15268058c273e4e6d0b8d17f6ea85b3ce78e417748",
+    "url": "https://unpkg.com/photoswipe@5.4.4/dist/photoswipe.esm.js"
+  }
+}
