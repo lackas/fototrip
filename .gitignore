@@ -1,0 +1,26 @@
+# Trip photo folders — inputs live beside the code but are never committed.
+/2026-07 Argentina/
+
+# Raw media, wherever it turns up. PNG/SVG/ICO stay allowed for site assets.
+*.jpeg
+*.jpg
+*.heic
+*.heif
+*.mov
+*.mp4
+
+# Generated sites and build caches
+/site/
+/out/
+.fototrip-cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# macOS
+.DS_Store
