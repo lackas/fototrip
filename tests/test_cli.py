@@ -1,10 +1,13 @@
 import json
+from datetime import datetime
+from pathlib import Path
 
 from click.testing import CliRunner
 from PIL import Image
 
 from fototrip import cli
 from fototrip.cli import main
+from fototrip.models import Photo
 from tests.conftest import BUENOS_AIRES, COLOGNE, IGUAZU
 
 
@@ -179,3 +182,82 @@ def test_warm_build_does_not_rewrite_unchanged_derivatives(make_jpeg, tmp_path):
     assert web.stat().st_mtime_ns == web_before
     assert (out / "thumb" / "IMG_2.jpg").exists()
     assert (out / "web" / "IMG_2.jpg").exists()
+
+
+def test_derive_one_catches_a_non_oserror_failure_from_build_derivatives(monkeypatch, tmp_path):
+    """`Image.DecompressionBombError` does not subclass `OSError`, so round 1's
+    narrower tuple would have let it crash the worker. This calls `_derive_one`
+    directly, in this process, rather than through a real `ProcessPoolExecutor`.
+
+    That is a deliberate, disclosed gap: a monkeypatch of `build_derivatives`
+    cannot reach a spawned worker (round 1's report), and staging a real
+    cross-process `DecompressionBombError` would require an oversized image --
+    but the bomb check fires in `Image.open()` on file size alone, so such an
+    image would also blow up `fototrip.metadata.read_photo`'s own unrelated
+    `Image.open()` call during the metadata scan, before ever reaching the
+    worker, and `metadata.py` is out of this task's scope to touch. Exception
+    handling is identical regardless of which process runs it, so this still
+    proves the exact try/except logic the worker executes; it just does not
+    additionally prove that a `DecompressionBombError` pickles cleanly across
+    the process boundary (it never has to -- `_derive_one` catches it locally
+    and only the `(photo, None)` marker crosses, which the pool already carries
+    correctly for other failures per the round-1 test).
+    """
+    photo = Photo(
+        source=tmp_path / "whatever.jpeg",
+        lat=0.0,
+        lon=0.0,
+        naive_dt=datetime(2026, 7, 17, 19, 37, 59),  # noqa: DTZ001 -- Photo.naive_dt is tz-naive by design
+        utc_offset=None,
+        width=1,
+        height=1,
+        camera=None,
+        photo_id="whatever",
+    )
+
+    def _bomb(*args, **kwargs):
+        raise Image.DecompressionBombError("staged for test")
+
+    monkeypatch.setattr(cli, "build_derivatives", _bomb)
+
+    result_photo, derivatives = cli._derive_one(photo, out_dir=tmp_path, thumb_px=96, web_px=1600)
+
+    assert result_photo is photo
+    assert derivatives is None
+
+
+def test_a_non_oserror_failure_in_the_warm_cache_read_triggers_a_rebuild(
+    make_jpeg, tmp_path, monkeypatch
+):
+    """Mirrors the previous test for the *other* widened catch: the warm-cache
+    dimension read. Unlike the worker, this loop runs in the parent process (only
+    stale photos go through the pool), so a direct monkeypatch of `Image.open`
+    genuinely exercises the real, production code path end to end through the
+    CLI -- no disclosed gap here.
+
+    The trip and output folders are kept as siblings (not nested, unlike most of
+    this file's other tests) specifically so the second build's metadata scan
+    never re-opens `web/IMG_1.jpg` itself: that would hit the same patched
+    `Image.open` and crash `read_photo` (out of scope) before the build ever
+    reached the warm-cache read this test targets.
+    """
+    trip = make_jpeg("IMG_1.jpeg", subdir="trip").parent
+    out = tmp_path / "site"
+    CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    web = out / "web" / "IMG_1.jpg"
+    real_open = Image.open
+
+    def _bomb_on_the_cached_derivative(fp, *args, **kwargs):
+        if Path(fp) == web:
+            raise Image.DecompressionBombError("staged for test")
+        return real_open(fp, *args, **kwargs)
+
+    monkeypatch.setattr(Image, "open", _bomb_on_the_cached_derivative)
+
+    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    assert result.exit_code == 0, result.output
+    manifest = json.loads((out / "photos.json").read_text())
+    assert len(manifest["photos"]) == 1
+    assert manifest["photos"][0]["id"] == "IMG_1"

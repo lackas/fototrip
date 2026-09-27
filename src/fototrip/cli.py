@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 
 from fototrip.cache import BuildCache
 from fototrip.images import Derivatives, build_derivatives
@@ -59,7 +59,15 @@ def _derive_one(photo: Photo, *, out_dir: Path, thumb_px: int, web_px: int):
         derivatives = build_derivatives(
             photo.source, photo.photo_id, out_dir, thumb_px=thumb_px, web_px=web_px
         )
-    except (OSError, UnidentifiedImageError, SyntaxError):
+    except Exception:  # noqa: BLE001 -- deliberately broad, see comment below
+        # Deliberately broad: this worker's only contract is that no single file
+        # can take the whole build down, and a heterogeneous multi-thousand-photo
+        # export can throw things an enumerated tuple will not anticipate (seen
+        # so far: OSError, UnidentifiedImageError, SyntaxError, DecompressionBombError,
+        # struct.error from malformed EXIF). A systematic bug still surfaces loudly
+        # -- every photo ends up skipped as "unreadable or truncated image" and the
+        # build exits non-zero if nothing could be included -- so this does not
+        # hide it, it just stops one bad file from hiding every other good one.
         return photo, None
     return photo, derivatives
 
@@ -112,10 +120,12 @@ def build(folder, out_dir, title, subtitle, thumb_px, web_px) -> None:
             # Pillow reads only the JPEG header here, so this stays cheap.
             with Image.open(out_dir / web_rel) as existing:
                 width, height = existing.size
-        except (OSError, UnidentifiedImageError, SyntaxError):
-            # The cache said this was fresh, but the file itself is broken (for
-            # example clobbered out-of-band). Rebuild it like any other stale
-            # photo instead of failing the whole command.
+        except Exception:  # noqa: BLE001 -- deliberately broad, see comment below
+            # Deliberately broad, for the same reason as _derive_one's catch: the
+            # cache said this was fresh, but the file itself is broken (clobbered
+            # out-of-band, truncated, or anything else Pillow can throw on a bad
+            # read). Rebuild it like any other stale photo instead of failing the
+            # whole command.
             stale.append(photo)
             continue
         entries.append((photo, Derivatives(thumb_rel, web_rel, width, height)))
