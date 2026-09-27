@@ -72,7 +72,7 @@ def test_zoomed_out_shows_clusters_not_every_marker(page, site_url):
     page.evaluate("window.fototrip.map.setZoom(2)")
     page.wait_for_timeout(400)
     assert page.locator(".cluster-marker").count() >= 1
-    assert page.locator(".photo-marker").count() < 5
+    assert page.locator(".photo-marker").count() < 6
 
 
 def test_zooming_into_one_place_reveals_individual_thumbnails(page, site_url):

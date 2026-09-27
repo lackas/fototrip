@@ -4,9 +4,10 @@ Standalone by design: only stdlib imports, so this module can be reasoned
 about (and tested) without pulling in the rest of the package.
 """
 
+import hashlib
 import json
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 @dataclass
@@ -44,18 +45,47 @@ class BuildCache:
         try:
             loaded = json.loads(path.read_text())
             if isinstance(loaded, dict):
-                self._entries = {k: v for k, v in loaded.items() if isinstance(v, list)}
+                # Entries from a pre-fix version of this class were keyed on
+                # the absolute source path. Loading one of those and writing
+                # it straight back out would keep the exact leak this class
+                # exists to close, indefinitely, across every rebuild. Drop
+                # anything that isn't a plainly safe relative key instead --
+                # cheap to degrade to a rebuild, cheap to get wrong the other
+                # way.
+                self._entries = {
+                    k: v for k, v in loaded.items() if isinstance(v, list) and self._is_safe_key(k)
+                }
         except (OSError, ValueError):
             self._entries = {}
 
+    @staticmethod
+    def _is_safe_key(key: str) -> bool:
+        """A key must be a relative path with no leading slash and no '..'
+        segment -- anything else is either an absolute path (this version's
+        own `_key()` never produces one) or otherwise not something that was
+        written by this version, and must not be trusted to stay private."""
+        if not key or key.startswith(("/", "~")):
+            return False
+        return ".." not in PurePosixPath(key).parts
+
     def _key(self, source: Path) -> str:
         """Source path relative to `root`, forward-slashed so the same trip
-        keys identically regardless of platform. Falls back to the resolved
-        absolute path on the rare source that isn't actually under root."""
+        keys identically regardless of platform.
+
+        Falls back to a stable hash of the resolved absolute path on the
+        rare source that isn't actually under root (e.g. symlinked in from
+        elsewhere): the hash must never be the path itself, or it would leak
+        exactly like the bug this class exists to fix, straight into the
+        published cache file. It has to stay stable across runs -- otherwise
+        such a source could never be cached -- which a hash of the resolved
+        path gives for free.
+        """
+        resolved = source.resolve()
         try:
-            return source.resolve().relative_to(self.root.resolve()).as_posix()
+            return resolved.relative_to(self.root.resolve()).as_posix()
         except ValueError:
-            return source.resolve().as_posix()
+            digest = hashlib.sha256(str(resolved).encode()).hexdigest()
+            return f"external/{digest}"
 
     def _signature(self, source: Path) -> list[float]:
         info = source.stat()

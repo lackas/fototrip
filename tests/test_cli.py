@@ -140,19 +140,70 @@ def test_relative_and_absolute_folder_paths_share_cache_hits(make_jpeg, tmp_path
     assert "1 cached" in second.output
 
 
-def test_changing_thumb_px_invalidates_only_the_thumb_cache_key(make_jpeg, tmp_path):
+def test_an_interrupted_derivative_stage_still_saves_completed_records(
+    make_jpeg, tmp_path, monkeypatch
+):
+    """Ctrl-C during the derivative pool must not discard cache records for
+    derivatives that already finished and are sitting on disk -- otherwise a
+    full-size re-export interrupted near the end restarts from zero instead
+    of resuming.
+
+    Faking `ProcessPoolExecutor` runs this entirely in-process, with none of
+    the spawn-boundary tricks other tests in this file need: `cli._derive_one`
+    is real and unpatched, so the one derivative that completes before the
+    simulated interrupt is a genuine result written by genuine code, not a
+    stand-in for it.
+    """
+    trip = make_jpeg("IMG_1.jpeg").parent
+    make_jpeg("IMG_2.jpeg", lat=IGUAZU[0], lon=IGUAZU[1])
+    out = tmp_path / "site"
+
+    class _PoolInterruptsAfterOne:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def map(self, func, iterable, chunksize=1):
+            items = list(iterable)
+            yield func(items[0])
+            raise KeyboardInterrupt("simulated ctrl-c")
+
+    monkeypatch.setattr(cli, "ProcessPoolExecutor", lambda *a, **k: _PoolInterruptsAfterOne())
+
+    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    assert result.exit_code != 0
+
+    cache_path = out / cli.CACHE_FILENAME
+    assert cache_path.exists(), "the interrupted build must still have saved a cache file"
+    saved = json.loads(cache_path.read_text())
+    assert len(saved) == 1, "exactly the one derivative that finished before the interrupt"
+    assert len(list((out / "thumb").glob("*.jpg"))) == 1
+    assert len(list((out / "web").glob("*.jpg"))) == 1
+
+
+def test_changing_thumb_px_invalidates_the_whole_cache_entry(make_jpeg, tmp_path):
     """A warm re-run with a different --thumb-px must not report the old-sized
     thumbnail as cached -- the size is part of what makes a derivative
-    "current"."""
+    "current". thumb_px and web_px share one signature (a deliberately
+    simple, coarser rule, not a per-derivative one), so this rebuilds *both*
+    derivatives, not just the thumbnail whose size actually changed."""
     trip = make_jpeg("IMG_1.jpeg").parent
     out = tmp_path / "site"
     CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+    web_before = (out / "web" / "IMG_1.jpg").stat().st_mtime_ns
 
     result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out), "--thumb-px", "128"])
 
     assert result.exit_code == 0, result.output
     assert "1 written" in result.output
     assert Image.open(out / "thumb" / "IMG_1.jpg").size == (128, 128)
+    # The web derivative's size is unaffected by --thumb-px, but it was
+    # rewritten anyway: proof the whole entry was invalidated, not just the
+    # thumbnail.
+    assert (out / "web" / "IMG_1.jpg").stat().st_mtime_ns != web_before
 
 
 def test_title_flag_overrides_the_folder_name(make_jpeg, tmp_path):

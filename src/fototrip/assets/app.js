@@ -125,24 +125,31 @@ function openLightboxAt(index) {
 }
 
 async function boot() {
+  // Narrowly scoped to the fetch and the parse: a bug in renderTimeline() or
+  // selectDay() below must surface as a real console error, not get
+  // relabelled as a "Could not load photos.json" message it has nothing to
+  // do with.
+  let manifest;
   try {
     const response = await fetch("photos.json");
     if (!response.ok) {
       throw new Error(`photos.json: HTTP ${response.status}`);
     }
-    const manifest = await response.json();
-    state.photos = manifest.photos;
-    state.days = manifest.days;
-    state.bounds = manifest.bounds;
-    renderTimeline();
-    selectDay(null);
-    window.dispatchEvent(new CustomEvent("fototrip:loaded"));
+    manifest = await response.json();
   } catch (error) {
+    console.error(error);
     const status = document.getElementById("status");
     if (status) {
       status.textContent = `Could not load photos.json: ${error.message}`;
     }
+    return;
   }
+  state.photos = manifest.photos;
+  state.days = manifest.days;
+  state.bounds = manifest.bounds;
+  renderTimeline();
+  selectDay(null);
+  window.dispatchEvent(new CustomEvent("fototrip:loaded"));
 }
 
 /* ---- day strip ------------------------------------------------------- */
@@ -163,6 +170,25 @@ function selectDay(day) {
   }
 }
 
+/* A `.bar` at the given height plus a two-line `<span>` label, the same
+ * structure the innerHTML template strings used to build. Built as real
+ * nodes rather than interpolated markup for the same reason the marker and
+ * cluster icons were: today's values are machine-generated integers and
+ * ISO date slices with no injection risk, but it is the same construct, and
+ * consistent is easier to keep safe than "safe here, not there". */
+function dayCellContents(barHeightPx, labelLine1, count) {
+  const bar = document.createElement("div");
+  bar.className = "bar";
+  bar.style.height = `${barHeightPx}px`;
+
+  const label = document.createElement("span");
+  label.appendChild(document.createTextNode(labelLine1));
+  label.appendChild(document.createElement("br"));
+  label.appendChild(document.createTextNode(String(count)));
+
+  return [bar, label];
+}
+
 function renderTimeline() {
   const timeline = document.getElementById("timeline");
   if (!timeline) return;
@@ -174,9 +200,9 @@ function renderTimeline() {
   all.type = "button";
   all.className = "day-cell all";
   all.setAttribute("aria-pressed", "true");
-  all.innerHTML =
-    `<div class="bar" style="height:${TIMELINE_MAX_BAR}px"></div>` +
-    `<span>All<br>${state.photos.length}</span>`;
+  for (const node of dayCellContents(TIMELINE_MAX_BAR, "All", state.photos.length)) {
+    all.appendChild(node);
+  }
   all.addEventListener("click", () => selectDay(null));
   timeline.appendChild(all);
 
@@ -189,9 +215,9 @@ function renderTimeline() {
     const height = Math.max(3, Math.round((entry.count / busiest) * TIMELINE_MAX_BAR));
     const [, month, dayOfMonth] = entry.day.split("-");
     cell.title = `${entry.day} — ${entry.count} photo${entry.count === 1 ? "" : "s"}`;
-    cell.innerHTML =
-      `<div class="bar" style="height:${height}px"></div>` +
-      `<span>${dayOfMonth}.${month}.<br>${entry.count}</span>`;
+    for (const node of dayCellContents(height, `${dayOfMonth}.${month}.`, entry.count)) {
+      cell.appendChild(node);
+    }
     cell.addEventListener("click", () => selectDay(entry.day));
     timeline.appendChild(cell);
   }

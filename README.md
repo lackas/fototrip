@@ -45,11 +45,13 @@ if omitted.
 A build is incremental: it caches derivatives by each source file's path
 (relative to the trip folder), size and mtime, plus the `--thumb-px`/
 `--web-px` in effect, in `<out>/.fototrip-cache.json`, so re-running after
-adding a few photos only processes what changed, and changing either size
-flag only rebuilds what that size actually affects. The key is relative to
-the trip folder rather than absolute, so the cache file — which lives inside
-the folder the rest of this README tells you to publish — never carries your
-home directory or folder layout.
+adding a few photos only processes what changed. `--thumb-px` and `--web-px`
+are one shared part of every entry's signature, so changing either one
+invalidates every entry and rebuilds both derivatives for every photo, not
+just the size that changed — a deliberately simple, if coarser, rule. The
+key is relative to the trip folder rather than absolute, so the cache
+file — which lives inside the folder the rest of this README tells you to
+publish — never carries your home directory or folder layout.
 
 ## How days are decided
 
@@ -83,7 +85,7 @@ Buenos Aires coordinates; fototrip resolves that to local time
 ~/src/venv/fototrip/bin/pip install -e ".[dev]"
 ~/src/venv/fototrip/bin/playwright install chromium   # once, for the browser tests
 ~/src/venv/fototrip/bin/pytest            # everything
-~/src/venv/fototrip/bin/pytest -k frontend  # browser tests only
+~/src/venv/fototrip/bin/pytest -k frontend  # test_frontend*.py: mostly Playwright, plus a couple of manifest-shape checks that launch no browser
 ~/src/venv/fototrip/bin/ruff format src tests
 ```
 
