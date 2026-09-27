@@ -1,0 +1,26 @@
+[project]
+name = "fototrip"
+version = "0.1.0"
+description = "Static website generator for geotagged trip photos"
+requires-python = ">=3.13"
+dependencies = ["Pillow>=11", "timezonefinder>=6.5", "Jinja2>=3.1", "click>=8.1"]
+
+[project.scripts]
+fototrip = "fototrip.cli:main"
+
+[project.optional-dependencies]
+heic = ["pillow-heif>=0.18"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+fototrip = ["templates/*.j2", "assets/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
