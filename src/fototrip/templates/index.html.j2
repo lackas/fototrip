@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="vendor/markercluster/MarkerCluster.css">
+<link rel="stylesheet" href="vendor/photoswipe/photoswipe.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header id="trip-header">
+  <h1>{{ title }}</h1>
+  {% if subtitle %}<p class="subtitle">{{ subtitle }}</p>{% endif %}
+  <p class="build-status" id="status" role="status"></p>
+</header>
+
+<div id="map" aria-label="Map of photo locations"></div>
+
+<nav id="timeline" aria-label="Select a day"></nav>
+
+<footer id="attribution">{{ tile_attribution | safe }}</footer>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/markercluster/markercluster.js"></script>
+<script type="module">
+  window.FOTOTRIP_TILES = {
+    url: {{ tile_url | tojson }},
+    attribution: {{ tile_attribution | tojson }},
+  };
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
