@@ -156,3 +156,72 @@ def test_no_console_errors_on_load(page, site_url):
     _ready(page, url)
     page.wait_for_timeout(300)
     assert errors == []
+
+
+def _open_lightbox_on(page, photo_id):
+    index = page.evaluate(
+        "id => window.fototrip.state.visible.findIndex(p => p.id === id)", photo_id
+    )
+    assert index >= 0, f"{photo_id} is not in the visible set"
+    page.evaluate("i => window.fototrip.openLightboxAt(i)", index)
+    page.wait_for_selector(".pswp__custom-caption", state="visible")
+
+
+def test_the_lightbox_caption_shows_the_photos_own_local_time(page, site_url):
+    """IMG_6 is stamped 2026-07-20 01:30 +02:00 at Iguazu, i.e. 20:30 on the 19th
+    local. The browser sits in Europe/Berlin, where that instant is 01:30 on the
+    20th -- so a caption built with the viewer's timezone would read wrong."""
+    url, _ = site_url
+    _ready(page, url)
+    _open_lightbox_on(page, "IMG_6")
+
+    when = page.locator(".pswp__custom-caption .caption-when").inner_text()
+    assert "19. Juli 2026" in when
+    assert "20:30" in when
+    assert "01:30" not in when
+
+
+def test_the_lightbox_caption_shows_the_place(page, site_url):
+    url, _ = site_url
+    _ready(page, url)
+    _open_lightbox_on(page, "IMG_2")
+
+    where = page.locator(".pswp__custom-caption .caption-where").inner_text()
+    assert where == "Cataratas del Iguazú, Puerto Iguazú, Argentinien"
+
+
+def test_the_caption_names_the_weekday_and_month_in_german(page, site_url):
+    url, _ = site_url
+    _ready(page, url)
+    _open_lightbox_on(page, "IMG_1")
+
+    when = page.locator(".pswp__custom-caption .caption-when").inner_text()
+    assert when.startswith("Fr., 17. Juli 2026")
+    assert "19:37" in when
+
+
+def test_the_caption_follows_next_and_prev(page, site_url):
+    url, _ = site_url
+    _ready(page, url)
+    _open_lightbox_on(page, "IMG_1")
+    first = page.locator(".pswp__custom-caption .caption-when").inner_text()
+
+    # Advance through PhotoSwipe's own API rather than the keyboard: the arrow
+    # keys are covered by test_lightbox_next_and_prev_walk_chronologically, and
+    # what this test is about is that the caption follows the slide.
+    page.evaluate("window.fototrip.lightbox.pswp.next()")
+    page.wait_for_timeout(300)
+    second = page.locator(".pswp__custom-caption .caption-when").inner_text()
+
+    assert second != first
+
+
+def test_a_photo_without_a_place_shows_only_the_time(page, site_url):
+    url, _ = site_url
+    _ready(page, url)
+    page.evaluate("window.fototrip.state.visible[0].place = null")
+    page.evaluate("window.fototrip.openLightboxAt(0)")
+    page.wait_for_selector(".pswp__custom-caption", state="visible")
+
+    assert page.locator(".pswp__custom-caption .caption-when").inner_text() != ""
+    assert page.locator(".pswp__custom-caption .caption-where").count() == 0

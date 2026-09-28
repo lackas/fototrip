@@ -111,3 +111,20 @@ body {
   background: #1b1e23;
 }
 #attribution a { color: var(--muted); }
+
+.pswp__custom-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgb(0 0 0 / 0.72), rgb(0 0 0 / 0));
+  color: #fff;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.35;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.8);
+}
+.pswp__custom-caption .caption-when { font-weight: 600; }
+.pswp__custom-caption .caption-where { color: #d6d3cf; }

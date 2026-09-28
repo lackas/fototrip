@@ -34,6 +34,7 @@ class Photo:
     local_dt: datetime | None = None
     day: str | None = None
     photo_id: str | None = None
+    place: str | None = None
 
     def evolve(self, **changes) -> "Photo":
         return replace(self, **changes)

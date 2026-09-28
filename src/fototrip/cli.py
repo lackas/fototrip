@@ -17,10 +17,16 @@ from fototrip.localtime import Localizer
 from fototrip.manifest import assign_ids, build_manifest
 from fototrip.metadata import read_photo
 from fototrip.models import Photo, SkipPhoto, SkipReason
+from fototrip.places import Geocoder, PlaceCache, fetch_address
 from fototrip.scan import find_photos
 from fototrip.site import TripConfig, render_site
 
 CACHE_FILENAME = ".fototrip-cache.json"
+
+# Deliberately NOT inside the output folder: the lookups are rate-limited to
+# one per second, so they must survive `rm -rf site`, and the file is a build
+# artifact that has no business being published with the site.
+DEFAULT_PLACES_CACHE = Path.home() / ".cache" / "fototrip" / "places.json"
 
 
 @dataclass
@@ -31,6 +37,9 @@ class BuildReport:
     cached: int = 0
     written: int = 0
     skipped: Counter[SkipReason] = field(default_factory=Counter)
+    places_looked_up: int = 0
+    places_cached: int = 0
+    places_unnamed: int = 0
 
     def render(self) -> str:
         lines = [
@@ -41,11 +50,39 @@ class BuildReport:
             ),
             f"derivatives: {self.written} written, {self.cached} cached",
         ]
+        if self.places_looked_up or self.places_cached or self.places_unnamed:
+            line = f"places: {self.places_looked_up} looked up, {self.places_cached} from cache"
+            if self.places_unnamed:
+                line += f", {self.places_unnamed} without a name"
+            lines.append(line)
         if self.skipped:
             lines.append(f"{sum(self.skipped.values())} skipped:")
             for reason, count in self.skipped.most_common():
                 lines.append(f"  {count:>5}  {reason}")
         return "\n".join(lines)
+
+
+def _resolve_places(photos: list[Photo], cache_path: Path, report: BuildReport) -> list[Photo]:
+    """Attach a readable place name to each photo, cached across runs.
+
+    Runs in the parent process, ahead of the derivative pool: the lookups are
+    rate-limited to one per second, so they must not be multiplied by the
+    number of workers. Photos at the same rounded coordinate share one lookup,
+    which on a real trip collapses ~950 photos into ~130 requests.
+
+    Never fatal. A build without network produces a site without place names.
+    """
+    geocoder = Geocoder(PlaceCache(cache_path), fetch=fetch_address)
+    with click.progressbar(photos, label="places") as progress:
+        resolved = [
+            photo.evolve(place=geocoder.label_for(photo.lat, photo.lon)) for photo in progress
+        ]
+
+    geocoder.cache.save()
+    report.places_looked_up = geocoder.stats.looked_up
+    report.places_cached = geocoder.stats.cached
+    report.places_unnamed = geocoder.stats.unnamed + geocoder.stats.failed
+    return resolved
 
 
 def _derive_one(photo: Photo, *, out_dir: Path, thumb_px: int, web_px: int):
@@ -84,7 +121,20 @@ def main() -> None:
 @click.option("--subtitle", default=None)
 @click.option("--thumb-px", default=96, show_default=True)
 @click.option("--web-px", default=1600, show_default=True)
-def build(folder, out_dir, title, subtitle, thumb_px, web_px) -> None:
+@click.option(
+    "--geocode/--no-geocode",
+    default=True,
+    show_default=True,
+    help="Look up a readable place name per location (OpenStreetMap, cached).",
+)
+@click.option(
+    "--places-cache",
+    "places_cache",
+    type=click.Path(path_type=Path),
+    default=None,
+    help=f"Where to cache place names. [default: {DEFAULT_PLACES_CACHE}]",
+)
+def build(folder, out_dir, title, subtitle, thumb_px, web_px, geocode, places_cache) -> None:
     """Build the site for FOLDER."""
     report = BuildReport()
     candidates = find_photos(folder)
@@ -101,6 +151,9 @@ def build(folder, out_dir, title, subtitle, thumb_px, web_px) -> None:
     if not photos:
         click.echo(report.render())
         raise click.ClickException(f"no photos with usable GPS and timestamps in {folder}")
+
+    if geocode:
+        photos = _resolve_places(photos, places_cache or DEFAULT_PLACES_CACHE, report)
 
     photos = assign_ids(photos)
     cache = BuildCache(out_dir / CACHE_FILENAME, root=folder, thumb_px=thumb_px, web_px=web_px)

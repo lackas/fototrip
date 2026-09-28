@@ -9,7 +9,7 @@ from fototrip.models import Photo
 _SAFE_ID = re.compile(r"[A-Za-z0-9._-]+")
 
 
-def _photo(name, day, hour, lat=-25.6, lon=-54.4, subdir=""):
+def _photo(name, day, hour, lat=-25.6, lon=-54.4, subdir="", place="Puerto Iguazú, Argentinien"):
     local = datetime.fromisoformat(f"{day}T{hour:02d}:00:00-03:00")
     return Photo(
         source=Path(subdir) / name,
@@ -22,6 +22,7 @@ def _photo(name, day, hour, lat=-25.6, lon=-54.4, subdir=""):
         camera="iPhone 17 Pro",
         local_dt=local,
         day=day,
+        place=place,
     )
 
 
@@ -75,7 +76,15 @@ def test_manifest_entry_shape():
         "t": "2026-07-19T10:00:00-03:00",
         "day": "2026-07-19",
         "camera": "iPhone 17 Pro",
+        "place": "Puerto Iguazú, Argentinien",
     }
+
+
+def test_a_photo_without_a_resolved_place_carries_null():
+    """Geocoding is best-effort: an offline build still produces a manifest."""
+    [photo] = assign_ids([_photo("IMG_1.jpeg", "2026-07-19", 10, place=None)])
+    result = build_manifest([(photo, _derivs("IMG_1"))])
+    assert result["photos"][0]["place"] is None
 
 
 def test_days_summary_counts_photos_in_order():

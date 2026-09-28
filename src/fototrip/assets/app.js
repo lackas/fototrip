@@ -52,13 +52,36 @@ const clusterGroup = L.markerClusterGroup({
   },
 }).addTo(map);
 
+/* Photos carry their own UTC offset, and the whole point of this project is
+ * that the offset is not where the photo was taken: the phones stayed on
+ * German time for an Argentina trip. `new Date(t).toLocaleString()` renders in
+ * the VIEWER's timezone, so a photo taken at 20:30 at Iguazu would read 01:30
+ * the next day for someone in Cologne. The parts are therefore read straight
+ * out of the ISO string; only the weekday and month names come from Intl, and
+ * those are resolved against a UTC date built from those same parts so they
+ * cannot drift either.
+ */
+const CAPTURE_STAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
+
+function formatCaptureStamp(iso) {
+  const match = CAPTURE_STAMP.exec(iso ?? "");
+  if (!match) return "";
+  const [, year, month, day, hour, minute] = match;
+  const names = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  let weekday = names.toLocaleDateString("de-DE", { weekday: "short", timeZone: "UTC" });
+  // Chromium's ICU returns "Fr", other builds "Fr."; German wants the dot.
+  if (!weekday.endsWith(".")) weekday += ".";
+  const monthName = names.toLocaleDateString("de-DE", { month: "long", timeZone: "UTC" });
+  return `${weekday}, ${Number(day)}. ${monthName} ${year} \u00b7 ${hour}:${minute}`;
+}
+
 function markerFor(photo, index) {
   const div = document.createElement("div");
   div.className = "photo-marker";
   div.style.backgroundImage = `url('${photo.thumb}')`;
   const marker = L.marker([photo.lat, photo.lon], {
     photo,
-    title: new Date(photo.t).toLocaleString(),
+    title: formatCaptureStamp(photo.t),
     icon: L.divIcon({
       className: "",
       iconSize: [44, 44],
@@ -114,12 +137,42 @@ const lightbox = new PhotoSwipeLightbox({
 });
 lightbox.init();
 
+/* PhotoSwipe v5 ships no caption of its own, so register one as a UI element
+ * and refill it on every slide change. */
+lightbox.on("uiRegister", () => {
+  lightbox.pswp.ui.registerElement({
+    name: "custom-caption",
+    appendTo: "root",
+    onInit: (element, pswp) => {
+      const fill = () => {
+        const photo = state.visible[pswp.currIndex];
+        element.replaceChildren();
+        if (!photo) return;
+
+        const when = document.createElement("div");
+        when.className = "caption-when";
+        when.textContent = formatCaptureStamp(photo.t);
+        element.appendChild(when);
+
+        if (photo.place) {
+          const where = document.createElement("div");
+          where.className = "caption-where";
+          where.textContent = photo.place;
+          element.appendChild(where);
+        }
+      };
+      pswp.on("change", fill);
+      fill();
+    },
+  });
+});
+
 function openLightboxAt(index) {
   lightbox.options.dataSource = state.visible.map((photo) => ({
     src: photo.web,
     width: photo.w,
     height: photo.h,
-    alt: new Date(photo.t).toLocaleString(),
+    alt: formatCaptureStamp(photo.t),
   }));
   lightbox.loadAndOpen(Math.max(0, Math.min(index, state.visible.length - 1)));
 }

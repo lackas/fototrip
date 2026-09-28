@@ -65,6 +65,7 @@ def build_manifest(entries: list[tuple[Photo, Derivatives]]) -> dict:
             "t": photo.local_dt.isoformat(),
             "day": photo.day,
             "camera": photo.camera,
+            "place": photo.place,
         }
         for photo, derivatives in ordered
     ]

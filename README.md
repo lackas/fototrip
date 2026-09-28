@@ -20,8 +20,9 @@ python3 -m venv ~/src/venv/fototrip
 
 `build` flags: `-o/--out` (default `site`), `--title` and `--subtitle`
 (override `trip.toml` and the folder name), `--thumb-px` (default 96, the
-square marker/cluster thumbnail) and `--web-px` (default 1600, the long-edge
-cap on the lightbox image). `serve` takes `-p/--port` (default 8000).
+square marker/cluster thumbnail), `--web-px` (default 1600, the long-edge
+cap on the lightbox image), `--no-geocode` and `--places-cache` (see "Place
+names" below). `serve` takes `-p/--port` (default 8000).
 
 The output in `site/` is fully static: copy it anywhere that serves files. It
 needs no API key and fetches nothing from a CDN at runtime. The one exception
@@ -52,6 +53,30 @@ just the size that changed — a deliberately simple, if coarser, rule. The
 key is relative to the trip folder rather than absolute, so the cache
 file — which lives inside the folder the rest of this README tells you to
 publish — never carries your home directory or folder layout.
+
+## Place names
+
+The lightbox shows each photo's capture date, its local capture time, and a
+readable place — "Cataratas del Iguazú, Puerto Iguazú, Argentinien" rather
+than a pair of coordinates.
+
+The names come from OpenStreetMap's Nominatim service, looked up **at build
+time only**: the published site still makes no third-party requests and needs
+no API key. Nominatim's usage policy allows one request per second, so the
+build spaces them out and caches every answer. Coordinates are rounded to
+about 110 m for the lookup, which on a real trip collapses ~950 photos into
+~130 requests: roughly two minutes the first time, and nothing at all
+afterwards.
+
+The cache lives at `~/.cache/fototrip/places.json`, outside the output
+folder, so `rm -rf site` does not throw those lookups away. Move it with
+`--places-cache PATH`. It stores only the rounded coordinate, never a photo's
+exact position.
+
+Geocoding is best-effort and never fatal. Build without a network connection
+and you get a site without place names, reported as "without a name" in the
+build summary; the next build with a connection fills them in. Turn it off
+entirely with `--no-geocode`.
 
 ## How days are decided
 

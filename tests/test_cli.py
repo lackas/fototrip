@@ -378,3 +378,78 @@ def test_a_non_oserror_failure_in_the_warm_cache_read_triggers_a_rebuild(
     manifest = json.loads((out / "photos.json").read_text())
     assert len(manifest["photos"]) == 1
     assert manifest["photos"][0]["id"] == "IMG_1"
+
+
+def test_build_resolves_a_human_readable_place_for_each_photo(make_jpeg, tmp_path):
+    trip = make_jpeg("IMG_1.jpeg", lat=IGUAZU[0], lon=IGUAZU[1]).parent
+    out = tmp_path / "site"
+
+    CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    [entry] = json.loads((out / "photos.json").read_text())["photos"]
+    assert entry["place"] == "Cataratas del Iguazú, Puerto Iguazú, Argentinien"
+
+
+def test_no_geocode_leaves_places_empty_and_asks_nothing(make_jpeg, tmp_path, monkeypatch):
+    trip = make_jpeg("IMG_1.jpeg", lat=IGUAZU[0], lon=IGUAZU[1]).parent
+    out = tmp_path / "site"
+
+    def explode(lat, lon):
+        raise AssertionError("--no-geocode must not reach the geocoder")
+
+    monkeypatch.setattr("fototrip.cli.fetch_address", explode)
+    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out), "--no-geocode"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads((out / "photos.json").read_text())["photos"][0]["place"] is None
+
+
+def test_the_report_counts_place_lookups(make_jpeg, tmp_path):
+    trip = make_jpeg("IMG_1.jpeg", lat=IGUAZU[0], lon=IGUAZU[1]).parent
+    make_jpeg("IMG_2.jpeg", lat=IGUAZU[0], lon=IGUAZU[1], stamp="2026:07:19 11:00:00")
+    out = tmp_path / "site"
+
+    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    # Both photos sit at the same coordinates, so one lookup serves both.
+    assert "places: 1 looked up, 1 from cache" in result.output
+
+
+def test_a_second_build_reuses_the_places_cache(make_jpeg, tmp_path):
+    trip = make_jpeg("IMG_1.jpeg", lat=IGUAZU[0], lon=IGUAZU[1]).parent
+    out = tmp_path / "site"
+    cache = tmp_path / "places.json"
+
+    CliRunner().invoke(main, ["build", str(trip), "-o", str(out), "--places-cache", str(cache)])
+    result = CliRunner().invoke(
+        main, ["build", str(trip), "-o", str(out), "--places-cache", str(cache)]
+    )
+
+    assert "places: 0 looked up, 1 from cache" in result.output
+
+
+def test_the_places_cache_lives_outside_the_published_site(make_jpeg, tmp_path):
+    """Deleting the site must not cost the minutes of lookups again."""
+    trip = make_jpeg("IMG_1.jpeg", lat=IGUAZU[0], lon=IGUAZU[1]).parent
+    out = tmp_path / "site"
+    cache = tmp_path / "places.json"
+
+    CliRunner().invoke(main, ["build", str(trip), "-o", str(out), "--places-cache", str(cache)])
+
+    assert cache.exists()
+    assert not list(out.glob("**/places.json"))
+
+
+def test_a_geocoder_failure_does_not_fail_the_build(make_jpeg, tmp_path, monkeypatch):
+    trip = make_jpeg("IMG_1.jpeg", lat=IGUAZU[0], lon=IGUAZU[1]).parent
+    out = tmp_path / "site"
+
+    def offline(lat, lon):
+        raise OSError("no route to host")
+
+    monkeypatch.setattr("fototrip.cli.fetch_address", offline)
+    result = CliRunner().invoke(main, ["build", str(trip), "-o", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads((out / "photos.json").read_text())["photos"][0]["place"] is None
+    assert "1 without a name" in result.output

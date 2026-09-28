@@ -92,3 +92,48 @@ def site_url(make_jpeg, tmp_path):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_port}/", out
     server.shutdown()
+
+
+# --- geocoding safety net ------------------------------------------------
+#
+# Reverse geocoding runs during a build. No test may reach the network or
+# touch the developer's real ~/.cache/fototrip/places.json, so this fixture
+# is autouse: it points the default cache at tmp_path and replaces the one
+# HTTP call with a deterministic stub. A test that wants different behaviour
+# monkeypatches `fototrip.cli.fetch_address` itself.
+
+STUB_ADDRESSES = {
+    COLOGNE: {"suburb": "Altstadt-Nord", "city": "Köln", "country": "Deutschland"},
+    IGUAZU: {
+        "tourism": "Cataratas del Iguazú",
+        "town": "Puerto Iguazú",
+        "country": "Argentinien",
+    },
+    BUENOS_AIRES: {"city": "Buenos Aires", "country": "Argentinien"},
+}
+
+
+def stub_fetch_address(lat, lon):
+    """Answer like Nominatim would, for the coordinates the fixtures use."""
+    for (known_lat, known_lon), address in STUB_ADDRESSES.items():
+        if abs(lat - known_lat) < 0.1 and abs(lon - known_lon) < 0.1:
+            return dict(address)
+    return {"county": "Irgendwo", "country": "Argentinien"}
+
+
+@pytest.fixture(autouse=True)
+def offline_geocoding(monkeypatch, tmp_path):
+    monkeypatch.setattr("fototrip.cli.fetch_address", stub_fetch_address)
+    monkeypatch.setattr("fototrip.cli.DEFAULT_PLACES_CACHE", tmp_path / "places.json")
+
+
+@pytest.fixture(scope="session")
+def browser_context_args(browser_context_args):
+    """Pin the browser's timezone.
+
+    The lightbox caption must show each photo's LOCAL capture time, not the
+    viewer's. Pinning this to Berlin makes that testable: an Argentina photo
+    taken at 20:30 local is 01:30 the next day here, so a caption rendered in
+    the browser's zone would read visibly wrong.
+    """
+    return {**browser_context_args, "timezone_id": "Europe/Berlin", "locale": "de-DE"}
