@@ -54,6 +54,35 @@ key is relative to the trip folder rather than absolute, so the cache
 file — which lives inside the folder the rest of this README tells you to
 publish — never carries your home directory or folder layout.
 
+## Filling the folder from Photos.app
+
+`export-album` fills a trip folder straight from a Photos.app album, so a
+build no longer depends on someone having hand-exported the right photos:
+
+```bash
+~/src/venv/fototrip/bin/pip install -e ".[album]"   # once; macOS only
+~/src/venv/fototrip/bin/fototrip export-album "2026-07 Argentina" \
+    -o "2026-07 Argentina" --expect 2563 --replace
+```
+
+Photos are converted to JPEG and carry their capture time and — where the
+library knows it — their GPS coordinates, written into each file with
+`exiftool`. That last part matters for iCloud Shared Albums: Apple strips GPS
+from the file it hands out, but the library keeps the location, so exporting
+this way recovers coordinates a hand-export loses.
+
+The library is only ever read. Videos and live-photo motion files are skipped.
+
+`--replace` is required to write into a folder that is not empty, and the
+export is staged in `<folder>.incoming/` first: a failed, interrupted or
+suspiciously short export leaves your existing folder exactly as it was.
+`--expect N`, with the album's photo count, turns on the free-space check and
+puts the album's size in the report. Without it the export still refuses to
+replace anything when it produced no photos, or fewer than its own run report
+claimed — that check does not depend on `--expect`.
+
+Needs `exiftool` (`brew install exiftool`).
+
 ## Place names
 
 The lightbox shows each photo's capture date, its local capture time, and a
