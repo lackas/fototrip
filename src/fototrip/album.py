@@ -10,6 +10,7 @@ The Photos library is only ever read. Nothing here writes to it.
 import csv
 import os
 import shutil
+import subprocess
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -283,3 +284,23 @@ def export_album(
         shutil.rmtree(previous)
     report_path.unlink(missing_ok=True)
     return report
+
+
+def require_tools(osxphotos: str = "osxphotos") -> None:
+    """Check both external tools up front, so a missing one is an instruction."""
+    if shutil.which(osxphotos) is None:
+        raise ExportRefused(
+            f"{osxphotos} not found. Install it with:\n"
+            f"    ~/src/venv/fototrip/bin/pip install -e '.[album]'"
+        )
+    if shutil.which("exiftool") is None:
+        raise ExportRefused(
+            "exiftool not found; it is what writes the library's coordinates into the\n"
+            "exported files. Install it with:\n"
+            "    brew install exiftool"
+        )
+
+
+def run_osxphotos(command: list[str]) -> int:
+    """Run the export, letting its progress reach the terminal. Returns the exit status."""
+    return subprocess.run(command, check=False).returncode

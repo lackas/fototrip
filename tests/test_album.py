@@ -1,4 +1,5 @@
 import shutil
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from fototrip.album import (
     build_command,
     export_album,
     read_osxphotos_report,
+    require_tools,
+    run_osxphotos,
 )
 
 
@@ -645,3 +648,50 @@ def test_refuses_to_replace_a_parent_of_the_current_working_directory(tmp_path, 
 def test_free_space_reports_the_volume_under_a_path_that_does_not_exist_yet(tmp_path):
     """The precheck runs before the folder exists, so it walks up to one that does."""
     assert album._free_space(tmp_path / "not" / "there" / "yet") > 0
+
+
+def test_require_tools_is_satisfied_when_both_are_present(monkeypatch):
+    monkeypatch.setattr("fototrip.album.shutil.which", lambda name: f"/usr/bin/{name}")
+    require_tools()  # does not raise
+
+
+def test_a_missing_osxphotos_names_the_extra_to_install(monkeypatch):
+    monkeypatch.setattr(
+        "fototrip.album.shutil.which", lambda name: None if name == "osxphotos" else "/usr/bin/x"
+    )
+    with pytest.raises(ExportRefused) as excinfo:
+        require_tools()
+    assert "osxphotos" in excinfo.value.message
+    assert ".[album]" in excinfo.value.message
+
+
+def test_a_missing_exiftool_names_how_to_install_it(monkeypatch):
+    monkeypatch.setattr(
+        "fototrip.album.shutil.which", lambda name: None if name == "exiftool" else "/usr/bin/x"
+    )
+    with pytest.raises(ExportRefused) as excinfo:
+        require_tools()
+    assert "exiftool" in excinfo.value.message
+    assert "brew" in excinfo.value.message
+
+
+def test_a_custom_osxphotos_path_is_the_one_checked(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        "fototrip.album.shutil.which", lambda name: seen.append(name) or "/usr/bin/x"
+    )
+    require_tools(osxphotos="/opt/homebrew/bin/osxphotos")
+    assert "/opt/homebrew/bin/osxphotos" in seen
+
+
+def test_run_osxphotos_returns_the_exit_status_of_the_command():
+    """A non-zero status comes back as a value, not as an exception.
+
+    export_album reads this return value and raises ExportRefused itself, so a
+    runner that raised CalledProcessError would bypass its refusal path.
+    """
+    assert run_osxphotos([sys.executable, "-c", "raise SystemExit(3)"]) == 3
+
+
+def test_run_osxphotos_returns_zero_for_a_command_that_succeeds():
+    assert run_osxphotos([sys.executable, "-c", ""]) == 0
