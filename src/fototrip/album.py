@@ -142,6 +142,9 @@ MEGABYTES_PER_PHOTO = 1.5
 #: The precheck demands this much more than the estimate before starting.
 SPACE_MARGIN = 1.5
 
+# What --convert-to-jpeg is expected to leave behind. A file the export produced
+# in some other format is counted by the run report but not here, which fails
+# toward a refusal rather than toward a bad swap.
 IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png"})
 
 
@@ -204,6 +207,14 @@ def export_album(
     if not os.access(parent, os.W_OK):
         raise ExportRefused(f"{parent} is not writable, so the export cannot be staged there.")
 
+    previous = parent / f"{destination.name}.previous"
+    if previous.exists():
+        raise ExportRefused(
+            f"{previous} is in the way. It may be the old trip folder left by an "
+            "interrupted run -- check what is in it before you move or delete it, "
+            "then try again."
+        )
+
     needed = int(in_album * MEGABYTES_PER_PHOTO * 1_000_000 * SPACE_MARGIN)
     available = free_space(parent)
     if available < needed:
@@ -234,6 +245,13 @@ def export_album(
             f'The export produced no photos. Is "{album}" the exact album name? '
             f"{destination} was not touched."
         )
+    if report.exported == 0 and not report.failed:
+        raise ExportRefused(
+            f"{len(written)} photos were written but {report_path} could not be read, "
+            "so the export cannot be checked for truncation. "
+            f"{destination} was not touched; the export is in {incoming}. "
+            "An osxphotos version with different report columns would do this."
+        )
     if len(written) < report.exported:
         raise ExportRefused(
             f"The export reported {report.exported} photos but wrote fewer ({len(written)}). "
@@ -242,15 +260,26 @@ def export_album(
 
     report.bytes_written = sum(p.stat().st_size for p in written)
 
-    # The one destructive step, made interruptible. Both moves are atomic
-    # renames, so an interruption leaves either the complete old folder or the
-    # complete new one -- never a missing trip folder. `.previous` IS the old
-    # folder, renamed rather than copied, so peak disk usage is unchanged.
-    previous = parent / f"{destination.name}.previous"
+    # The one destructive step, made interruptible. Both moves are atomic renames,
+    # so an interruption leaves either the complete old folder or the complete new
+    # one -- never a missing trip folder. `.previous` IS the old folder, renamed
+    # rather than copied, so peak disk usage is unchanged. Only a folder THIS run
+    # created is ever deleted, and never with errors suppressed: a failed cleanup
+    # must be visible rather than leave a silent duplicate of the whole folder.
+    renamed_aside = False
     if destination.is_dir():
-        shutil.rmtree(previous, ignore_errors=True)  # a leftover from a crashed run
         destination.rename(previous)
-    incoming.rename(destination)
-    shutil.rmtree(previous, ignore_errors=True)
+        renamed_aside = True
+    try:
+        incoming.rename(destination)
+    except OSError as error:
+        if renamed_aside:
+            previous.rename(destination)  # put it back exactly as it was
+        raise ExportRefused(
+            f"Could not move the export into place: {error}. "
+            f"{destination} is as it was; the export is in {incoming}."
+        ) from error
+    if renamed_aside:
+        shutil.rmtree(previous)
     report_path.unlink(missing_ok=True)
     return report

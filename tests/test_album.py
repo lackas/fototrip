@@ -532,3 +532,116 @@ def test_the_old_folder_is_deleted_only_after_the_new_one_is_in_place(tmp_path, 
 
     assert (target / "new.jpg").exists()
     assert contents_at_each_delete[-1] == ["new.jpg"]
+
+
+def test_a_leftover_previous_folder_is_refused_rather_than_deleted(tmp_path):
+    """`.previous` may be the only surviving copy of the old folder.
+
+    An interrupted swap leaves the old trip folder there and nowhere else, so a
+    later run must stop and say so instead of quietly deleting it.
+    """
+    target = tmp_path / "trip"
+    target.mkdir()
+    leftover = tmp_path / "trip.previous"
+    leftover.mkdir()
+    (leftover / "the_only_copy.jpeg").write_bytes(b"irreplaceable")
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            replace=True,
+            runner=_runner_that_writes(("new.jpg",)),
+            free_space=lambda p: HUGE,
+        )
+
+    assert "trip.previous" in excinfo.value.message
+    assert (leftover / "the_only_copy.jpeg").read_bytes() == b"irreplaceable"
+    assert not (tmp_path / "trip.incoming").exists()
+
+
+def test_a_run_whose_report_cannot_be_read_does_not_replace_anything(tmp_path):
+    """Without a readable report there is no truncation check, so do not swap.
+
+    A forgiving parser leaves `exported` at 0, which would make the
+    `len(written) < exported` gate vacuously true and let a partial export
+    through.
+    """
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    def runner_that_writes_no_report(command):
+        destination = Path(command[2])
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "one_of_many.jpg").write_bytes(b"jpegdata")
+        return 0
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=2563,
+            replace=True,
+            runner=runner_that_writes_no_report,
+            free_space=lambda p: HUGE,
+        )
+
+    assert "could not be read" in excinfo.value.message
+    assert (target / "old.jpeg").read_bytes() == b"old"
+
+
+def test_a_failed_move_into_place_puts_the_old_folder_back(tmp_path, monkeypatch):
+    """The old folder must be restored, not left under its staging name."""
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    real_rename = Path.rename
+
+    def rename(self, other):
+        if Path(other) == target and self.name.endswith(".incoming"):
+            raise OSError("no")
+        return real_rename(self, other)
+
+    monkeypatch.setattr(Path, "rename", rename)
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            replace=True,
+            runner=_runner_that_writes(("new.jpg",)),
+            free_space=lambda p: HUGE,
+        )
+
+    assert "could not move the export into place" in excinfo.value.message.lower()
+    assert (target / "old.jpeg").read_bytes() == b"old"
+    assert not (tmp_path / "trip.previous").exists()
+
+
+def test_refuses_to_replace_a_parent_of_the_current_working_directory(tmp_path, monkeypatch):
+    target = tmp_path / "trip"
+    (target / "sub").mkdir(parents=True)
+    (target / "old.jpeg").write_bytes(b"old")
+    monkeypatch.chdir(target / "sub")
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            replace=True,
+            runner=_runner_that_writes(),
+            free_space=lambda p: HUGE,
+        )
+
+    assert "working directory" in excinfo.value.message.lower()
+    assert (target / "old.jpeg").exists()
+
+
+def test_free_space_reports_the_volume_under_a_path_that_does_not_exist_yet(tmp_path):
+    """The precheck runs before the folder exists, so it walks up to one that does."""
+    assert album._free_space(tmp_path / "not" / "there" / "yet") > 0
