@@ -7,6 +7,7 @@ call is injected, so no test needs a Photos library or a real export.
 The Photos library is only ever read. Nothing here writes to it.
 """
 
+import csv
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -92,3 +93,39 @@ def build_command(
         "--report",
         str(report_path),
     ]
+
+
+def _is_true(value: str | None) -> bool:
+    return str(value).strip().lower() == "true"
+
+
+def read_osxphotos_report(path: Path, report: ExportReport) -> None:
+    """Fill `report`'s counts from an osxphotos CSV run report.
+
+    Deliberately forgiving: a missing, unreadable or differently-shaped report
+    leaves the counts untouched rather than raising. osxphotos may change its
+    columns between versions, and the file count in `export_album` is what
+    actually gates the swap -- this only makes the summary richer.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return
+
+    try:
+        rows = list(csv.DictReader(text.splitlines()))
+    except csv.Error:
+        return
+
+    for row in rows:
+        if "exported" not in row:
+            return
+        error = (row.get("error") or "").strip()
+        if _is_true(row.get("exported")):
+            report.exported += 1
+            if _is_true(row.get("downloaded")):
+                report.downloaded += 1
+        elif error:
+            report.failed[error] += 1
+        else:
+            report.failed["export failed"] += 1

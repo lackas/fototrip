@@ -1,6 +1,7 @@
+from collections import Counter
 from pathlib import Path
 
-from fototrip.album import ExportReport, _human_bytes, build_command
+from fototrip.album import ExportReport, _human_bytes, build_command, read_osxphotos_report
 
 
 def test_report_names_the_album_and_the_counts():
@@ -166,3 +167,86 @@ def test_a_multiline_album_name_is_still_one_argument():
 def test_the_osxphotos_executable_can_be_overridden():
     command = _command(osxphotos="/opt/homebrew/bin/osxphotos")
     assert command[0] == "/opt/homebrew/bin/osxphotos"
+
+
+REPORT_HEADER = "filename,exported,new,updated,skipped,exif_updated,touched,converted_to_jpeg,downloaded,error\n"
+
+
+def _write_report(tmp_path, rows):
+    path = tmp_path / "report.csv"
+    path.write_text(REPORT_HEADER + "".join(rows), encoding="utf-8")
+    return path
+
+
+def test_exported_rows_are_counted(tmp_path):
+    path = _write_report(
+        tmp_path,
+        [
+            "a.jpg,True,True,False,False,True,True,True,False,\n",
+            "b.jpg,True,True,False,False,True,True,True,False,\n",
+        ],
+    )
+    report = ExportReport(album="A")
+    read_osxphotos_report(path, report)
+    assert report.exported == 2
+    assert report.failed == Counter()
+
+
+def test_downloaded_rows_are_counted_as_a_subset_of_exported(tmp_path):
+    path = _write_report(
+        tmp_path,
+        [
+            "a.jpg,True,True,False,False,True,True,True,True,\n",
+            "b.jpg,True,True,False,False,True,True,True,False,\n",
+        ],
+    )
+    report = ExportReport(album="A")
+    read_osxphotos_report(path, report)
+    assert (report.exported, report.downloaded) == (2, 1)
+
+
+def test_rows_with_an_error_are_counted_as_failures_with_their_message(tmp_path):
+    path = _write_report(
+        tmp_path,
+        [
+            "a.jpg,True,True,False,False,True,True,True,False,\n",
+            "b.jpg,False,False,False,False,False,False,False,False,could not download\n",
+        ],
+    )
+    report = ExportReport(album="A")
+    read_osxphotos_report(path, report)
+    assert report.exported == 1
+    assert report.failed["could not download"] == 1
+
+
+def test_a_row_that_neither_exported_nor_errored_is_counted_as_failed(tmp_path):
+    """Silence is not success: an unexported photo with no message still missed."""
+    path = _write_report(tmp_path, ["a.jpg,False,False,False,False,False,False,False,False,\n"])
+    report = ExportReport(album="A")
+    read_osxphotos_report(path, report)
+    assert report.exported == 0
+    assert report.failed["export failed"] == 1
+
+
+def test_a_missing_report_leaves_the_counts_alone(tmp_path):
+    report = ExportReport(album="A", exported=7)
+    read_osxphotos_report(tmp_path / "nope.csv", report)
+    assert report.exported == 7
+
+
+def test_an_unparsable_report_leaves_the_counts_alone(tmp_path):
+    path = tmp_path / "report.csv"
+    path.write_bytes(b"\xff\xfe not a csv at all")
+    report = ExportReport(album="A", exported=7)
+    read_osxphotos_report(path, report)
+    assert report.exported == 7
+
+
+def test_an_unexpected_column_layout_does_not_raise(tmp_path):
+    """osxphotos may add or reorder columns between versions."""
+    path = tmp_path / "report.csv"
+    path.write_text("something,else\n1,2\n", encoding="utf-8")
+    report = ExportReport(album="A")
+    read_osxphotos_report(path, report)
+    assert report.exported == 0
+    assert report.failed == Counter()
