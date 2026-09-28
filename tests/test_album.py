@@ -26,14 +26,6 @@ def test_report_names_the_album_and_the_counts():
     assert "2551 exported" in rendered
 
 
-def test_report_mentions_icloud_downloads_only_when_there_were_any():
-    quiet = ExportReport(album="A", in_album=2, exported=2).render()
-    assert "iCloud" not in quiet
-
-    loud = ExportReport(album="A", in_album=2, exported=2, downloaded=1).render()
-    assert "1 of them downloaded from iCloud" in loud
-
-
 def test_report_lists_failures_with_their_reason():
     report = ExportReport(album="A", in_album=3, exported=1)
     report.failed["export failed"] = 2
@@ -184,7 +176,9 @@ def test_the_osxphotos_executable_can_be_overridden():
     assert command[0] == "/opt/homebrew/bin/osxphotos"
 
 
-REPORT_HEADER = "filename,exported,new,updated,skipped,exif_updated,touched,converted_to_jpeg,downloaded,error\n"
+REPORT_HEADER = (
+    "filename,exported,new,updated,skipped,exif_updated,touched,converted_to_jpeg,error\n"
+)
 
 
 def _write_report(tmp_path, rows):
@@ -197,8 +191,8 @@ def test_exported_rows_are_counted(tmp_path):
     path = _write_report(
         tmp_path,
         [
-            "a.jpg,True,True,False,False,True,True,True,False,\n",
-            "b.jpg,True,True,False,False,True,True,True,False,\n",
+            "a.jpg,True,True,False,False,True,True,True,\n",
+            "b.jpg,True,True,False,False,True,True,True,\n",
         ],
     )
     report = ExportReport(album="A")
@@ -207,25 +201,12 @@ def test_exported_rows_are_counted(tmp_path):
     assert report.failed == Counter()
 
 
-def test_downloaded_rows_are_counted_as_a_subset_of_exported(tmp_path):
-    path = _write_report(
-        tmp_path,
-        [
-            "a.jpg,True,True,False,False,True,True,True,True,\n",
-            "b.jpg,True,True,False,False,True,True,True,False,\n",
-        ],
-    )
-    report = ExportReport(album="A")
-    read_osxphotos_report(path, report)
-    assert (report.exported, report.downloaded) == (2, 1)
-
-
 def test_rows_with_an_error_are_counted_as_failures_with_their_message(tmp_path):
     path = _write_report(
         tmp_path,
         [
-            "a.jpg,True,True,False,False,True,True,True,False,\n",
-            "b.jpg,False,False,False,False,False,False,False,False,could not download\n",
+            "a.jpg,True,True,False,False,True,True,True,\n",
+            "b.jpg,False,False,False,False,False,False,False,could not download\n",
         ],
     )
     report = ExportReport(album="A")
@@ -236,7 +217,7 @@ def test_rows_with_an_error_are_counted_as_failures_with_their_message(tmp_path)
 
 def test_a_row_that_neither_exported_nor_errored_is_counted_as_failed(tmp_path):
     """Silence is not success: an unexported photo with no message still missed."""
-    path = _write_report(tmp_path, ["a.jpg,False,False,False,False,False,False,False,False,\n"])
+    path = _write_report(tmp_path, ["a.jpg,False,False,False,False,False,False,False,\n"])
     report = ExportReport(album="A")
     read_osxphotos_report(path, report)
     assert report.exported == 0
@@ -267,6 +248,42 @@ def test_an_unexpected_column_layout_does_not_raise(tmp_path):
     assert report.failed == Counter()
 
 
+# A report produced by osxphotos 0.77.2 itself, pasted verbatim. Regenerate with:
+#   from osxphotos.cli.report_writer import ExportReportWriterCSV
+#   from osxphotos.photoexporter import ExportResults
+#   r = ExportResults(); r.exported = ["/x/a.jpeg"]; r.converted_to_jpeg = ["/x/a.jpeg"]
+#   w = ExportReportWriterCSV(path); w.write(r); w.close()
+# The values are 1/0, NOT True/False: only osxphotos' JSON writer passes
+# bool_values=True. A parser written against the wrong one counts every
+# successful export as a failure and silently disables the truncation gate.
+REAL_OSXPHOTOS_HEADER = (
+    "datetime,filename,exported,new,updated,skipped,exif_updated,touched,"
+    "converted_to_jpeg,sidecar_xmp,sidecar_json,sidecar_exiftool,missing,error,"
+    "exiftool_warning,exiftool_error,extended_attributes_written,"
+    "extended_attributes_skipped,cleanup_deleted_file,cleanup_deleted_directory,"
+    "exported_album,sidecar_user,sidecar_user_error,user_written,user_skipped,"
+    "user_error,aae_written,aae_skipped\n"
+)
+REAL_EXPORTED_ROW = (
+    "2026-09-28T22:11:03.120954,/x/a.jpeg,1,0,0,0,0,0,1,0,0,0,0,,,,0,0,0,0,,0,,0,0,,0,0\n"
+)
+
+
+def test_a_report_in_the_format_osxphotos_actually_writes_is_counted(tmp_path):
+    """The format is 1/0, not True/False.
+
+    Written against a hand-invented header, the parser counted every successful
+    export as a failure and left `exported` at 0, which made the truncation gate
+    in export_album vacuous.
+    """
+    path = tmp_path / "report.csv"
+    path.write_text(REAL_OSXPHOTOS_HEADER + REAL_EXPORTED_ROW * 3, encoding="utf-8")
+    report = ExportReport(album="A")
+    read_osxphotos_report(path, report)
+    assert report.exported == 3
+    assert report.failed == Counter()
+
+
 HUGE = 10**12
 
 
@@ -282,7 +299,7 @@ def _runner_that_writes(files=("a.jpg",), exit_code=0, report_rows=None):
         rows = (
             report_rows
             if report_rows is not None
-            else [f"{name},True,True,False,False,True,True,True,False,\n" for name in files]
+            else [f"{name},True,True,False,False,True,True,True,\n" for name in files]
         )
         report_path.write_text(REPORT_HEADER + "".join(rows), encoding="utf-8")
         return exit_code
@@ -381,7 +398,7 @@ def test_fewer_files_than_the_report_claims_does_not_replace_anything(tmp_path):
     target.mkdir()
     (target / "old.jpeg").write_bytes(b"old")
 
-    rows = [f"ghost{i}.jpg,True,True,False,False,True,True,True,False,\n" for i in range(5)]
+    rows = [f"ghost{i}.jpg,True,True,False,False,True,True,True,\n" for i in range(5)]
     with pytest.raises(ExportRefused) as excinfo:
         export_album(
             "A",
@@ -394,6 +411,35 @@ def test_fewer_files_than_the_report_claims_does_not_replace_anything(tmp_path):
 
     assert (target / "old.jpeg").exists()
     assert "fewer" in excinfo.value.message.lower()
+
+
+def test_a_short_export_is_refused_when_the_report_is_in_the_real_format(tmp_path):
+    """The gate must fire on a real report, which is where it was dead."""
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    def runner_claiming_five_writing_one(command):
+        destination = Path(command[2])
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "only_one.jpg").write_bytes(b"jpegdata")
+        Path(command[command.index("--report") + 1]).write_text(
+            REAL_OSXPHOTOS_HEADER + REAL_EXPORTED_ROW * 5, encoding="utf-8"
+        )
+        return 0
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=5,
+            replace=True,
+            runner=runner_claiming_five_writing_one,
+            free_space=lambda p: HUGE,
+        )
+
+    assert "fewer" in excinfo.value.message.lower()
+    assert (target / "old.jpeg").read_bytes() == b"old"
 
 
 def test_too_little_free_space_is_refused_before_exporting(tmp_path):

@@ -47,7 +47,6 @@ class ExportReport:
     album: str
     in_album: int = 0
     exported: int = 0
-    downloaded: int = 0
     bytes_written: int = 0
     failed: Counter[str] = field(default_factory=Counter)
 
@@ -55,10 +54,7 @@ class ExportReport:
         lines = []
         if self.in_album:
             lines.append(f'{self.in_album} photos in album "{self.album}"')
-        exported = f"{self.exported} exported"
-        if self.downloaded:
-            exported += f", {self.downloaded} of them downloaded from iCloud"
-        lines.append(exported)
+        lines.append(f"{self.exported} exported")
         if self.failed:
             lines.append(f"{sum(self.failed.values())} skipped:")
             for reason, count in self.failed.most_common():
@@ -98,17 +94,27 @@ def build_command(
     ]
 
 
+_TRUE_VALUES = frozenset({"1", "true", "yes"})
+
+
 def _is_true(value: str | None) -> bool:
-    return str(value).strip().lower() == "true"
+    """osxphotos' CSV writer emits 1/0; its JSON writer emits true/false.
+
+    Verified against osxphotos 0.77.2: ExportReportWriterCSV calls
+    prepare_export_results_for_writing WITHOUT bool_values=True, so the CSV
+    carries integers. Accepting both costs nothing and survives either.
+    """
+    return str(value).strip().lower() in _TRUE_VALUES
 
 
 def read_osxphotos_report(path: Path, report: ExportReport) -> None:
     """Fill `report`'s counts from an osxphotos CSV run report.
 
-    Deliberately forgiving: a missing, unreadable or differently-shaped report
-    leaves the counts untouched rather than raising. osxphotos may change its
-    columns between versions, and the file count in `export_album` is what
-    actually gates the swap -- this only makes the summary richer.
+    Forgiving about a missing or unreadable file, because a report that cannot
+    be read is not by itself proof that the export failed -- but NOT harmless:
+    `export_album` refuses to swap when this leaves the counts empty, because
+    the truncation check is the only thing standing between a short export and
+    the user's trip folder.
     """
     try:
         text = path.read_text(encoding="utf-8")
@@ -126,8 +132,6 @@ def read_osxphotos_report(path: Path, report: ExportReport) -> None:
         error = (row.get("error") or "").strip()
         if _is_true(row.get("exported")):
             report.exported += 1
-            if _is_true(row.get("downloaded")):
-                report.downloaded += 1
         elif error:
             report.failed[error] += 1
         else:
