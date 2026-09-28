@@ -511,6 +511,8 @@ def test_too_little_free_space_is_refused_before_exporting(tmp_path):
 
     assert ran == []
     assert "space" in excinfo.value.message.lower()
+    # The album size is the figure the estimate came from, so it is named.
+    assert "needed for 2563 photos" in excinfo.value.message
     assert not (tmp_path / "trip.incoming").exists()
 
 
@@ -763,6 +765,9 @@ def test_too_little_free_space_is_refused_even_without_expect(tmp_path):
         )
     assert ran == []
     assert "space" in excinfo.value.message.lower()
+    # Nothing counted the album, so the message must not pretend something did.
+    assert "0 photos" not in excinfo.value.message
+    assert "at least" in excinfo.value.message
 
 
 def test_a_staging_folder_that_cannot_be_cleared_is_refused(tmp_path, monkeypatch):

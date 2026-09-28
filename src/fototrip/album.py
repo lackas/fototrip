@@ -283,9 +283,15 @@ def export_album(
     )
     available = free_space(parent)
     if available < needed:
+        # `needed` has two sources now: the estimate from --expect, and the floor
+        # that applies without it. Naming the album's size when nothing counted it
+        # produced "needed for 0 photos", which is the one sentence a user reads.
+        if in_album:
+            detail = f"about {_human_bytes(needed)} needed for {in_album} photos"
+        else:
+            detail = f"at least {_human_bytes(needed)} needed before an export can start"
         raise ExportRefused(
-            f"Not enough space: about {_human_bytes(needed)} needed for {in_album} photos, "
-            f"{_human_bytes(available)} free on {parent}."
+            f"Not enough space: {detail}, {_human_bytes(available)} free on {parent}."
         )
 
     incoming = parent / f"{destination.name}.incoming"
