@@ -139,6 +139,18 @@ def test_command_takes_photos_only_and_no_live_motion():
     assert "--skip-live" in command
 
 
+def test_command_produces_one_file_per_album_photo():
+    """Every osxphotos default that would write a second file for one photo.
+
+    Without these, an edited photo exports twice, a burst exports every frame,
+    and a RAW+JPEG pair exports both -- and each duplicate becomes its own pin
+    on the map, at the same place and the same second.
+    """
+    command = _command()
+    for flag in ("--skip-live", "--skip-original-if-edited", "--skip-bursts", "--skip-raw"):
+        assert flag in command, flag
+
+
 def test_command_downloads_missing_originals_and_asks_for_a_report():
     command = _command()
     assert "--download-missing" in command
