@@ -12,12 +12,28 @@ from dataclasses import dataclass, field
 
 
 def _human_bytes(count: int) -> str:
-    """Bytes as a short decimal string: 4_900_000_000 -> '4.9 GB'."""
+    """Bytes as a short decimal string: 4_900_000_000 -> '4.9 GB'.
+
+    Promotion to the next unit happens when the rounded value at display
+    precision would be 1000 or more, not on the raw value. This ensures
+    999_999 bytes becomes '1.0 MB' (not '1000 kB') and similarly for every
+    unit boundary. TB is the final unit.
+    """
     value = float(count)
-    for unit in ("B", "kB", "MB", "GB", "TB"):
-        if value < 1000 or unit == "TB":
-            return f"{value:.1f} {unit}" if unit not in ("B", "kB") else f"{value:.0f} {unit}"
+
+    # Bytes stay whole; no decimal places
+    if value < 1000:
+        return f"{value:.0f} B"
+
+    # kB and above get one decimal place
+    for unit in ("kB", "MB", "GB", "TB"):
         value /= 1000
+        # Round at display precision to check promotion threshold
+        rounded = round(value, 1)
+        if rounded < 1000 or unit == "TB":
+            return f"{rounded:.1f} {unit}"
+
+    # Should never reach here, but fallback to TB
     return f"{value:.1f} TB"
 
 
