@@ -11,7 +11,13 @@ from pathlib import Path
 import click
 from PIL import Image
 
-from fototrip.album import ExportRefused, export_album, require_tools, run_osxphotos
+from fototrip.album import (
+    ExportRefused,
+    _default_osxphotos,
+    export_album,
+    require_tools,
+    run_osxphotos,
+)
 from fototrip.cache import BuildCache
 from fototrip.images import THUMB_DIR, WEB_DIR, Derivatives, build_derivatives
 from fototrip.localtime import Localizer
@@ -261,7 +267,12 @@ def serve(folder, port) -> None:
     "names the album's size in the report.",
 )
 @click.option("--jpeg-quality", type=click.FloatRange(0, 1), default=0.9, show_default=True)
-@click.option("--osxphotos", default="osxphotos", show_default=True, help="Path to osxphotos.")
+@click.option(
+    "--osxphotos",
+    default=_default_osxphotos(),
+    show_default=True,
+    help="Path to osxphotos.",
+)
 def export_album_command(album, destination, replace, in_album, jpeg_quality, osxphotos) -> None:
     """Fill a trip folder from the Photos.app album ALBUM."""
     if not in_album:

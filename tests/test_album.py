@@ -954,6 +954,31 @@ def test_a_missing_exiftool_names_how_to_install_it(monkeypatch):
     assert "brew" in excinfo.value.message
 
 
+def test_osxphotos_is_looked_for_beside_the_running_interpreter_first(tmp_path, monkeypatch):
+    """`pip install -e '.[album]'` puts it in fototrip's own venv, not on PATH.
+
+    Running `<venv>/bin/fototrip` does not add `<venv>/bin` to PATH, so a bare
+    "osxphotos" is not found even though the documented install put it there.
+    """
+    bin_dir = tmp_path / "venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "osxphotos").write_text("#!/bin/sh\n")
+    monkeypatch.setattr(sys, "executable", str(bin_dir / "python3"))
+
+    assert album._default_osxphotos() == str(bin_dir / "osxphotos")
+
+
+def test_osxphotos_falls_back_to_the_bare_name_when_not_beside_the_interpreter(
+    tmp_path, monkeypatch
+):
+    """A Homebrew or system install is still found the ordinary way, via PATH."""
+    bin_dir = tmp_path / "venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    monkeypatch.setattr(sys, "executable", str(bin_dir / "python3"))
+
+    assert album._default_osxphotos() == "osxphotos"
+
+
 def test_a_custom_osxphotos_path_is_the_one_checked(monkeypatch):
     seen = []
     monkeypatch.setattr(

@@ -11,6 +11,7 @@ import csv
 import os
 import shutil
 import subprocess
+import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -387,6 +388,17 @@ def export_album(
         shutil.rmtree(previous)
     report_path.unlink(missing_ok=True)
     return report
+
+
+def _default_osxphotos() -> str:
+    """osxphotos as installed beside the running interpreter, else on PATH.
+
+    `pip install -e '.[album]'` puts it in fototrip's own venv, but invoking
+    `<venv>/bin/fototrip` does not put `<venv>/bin` on PATH, so a bare
+    "osxphotos" is not found even though it is installed and working.
+    """
+    beside = Path(sys.executable).parent / "osxphotos"
+    return str(beside) if beside.is_file() else "osxphotos"
 
 
 def require_tools(osxphotos: str = "osxphotos") -> None:
