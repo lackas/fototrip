@@ -336,6 +336,61 @@ def test_hidden_files_and_appledouble_sidecars_are_not_counted_as_photos(tmp_pat
     assert [p.name for p in album._image_files(tmp_path)] == ["real.jpg"]
 
 
+# Real bytes, not mocks: the whole point of _normalise_extensions is that content
+# decides and the extension does not.
+JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 32
+HEIC_BYTES = b"\x00\x00\x00\x20ftypheic" + b"\x00" * 32
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+def test_a_jpeg_wearing_a_heic_name_is_renamed(tmp_path):
+    """An iCloud Shared Album hands out JPEG bytes under the original HEIC name.
+
+    1170 of one real album's 2563 photos, so --convert-to-jpeg had nothing to
+    convert and kept the name.
+    """
+    (tmp_path / "IMG_1.HEIC").write_bytes(JPEG_BYTES)
+
+    assert album._normalise_extensions(tmp_path) == 1
+    assert (tmp_path / "IMG_1.jpeg").read_bytes() == JPEG_BYTES
+    assert not (tmp_path / "IMG_1.HEIC").exists()
+
+
+def test_a_genuine_heic_keeps_its_name(tmp_path):
+    """Content decides. A real HEIC must still fail the count and refuse the swap."""
+    (tmp_path / "IMG_2.HEIC").write_bytes(HEIC_BYTES)
+
+    assert album._normalise_extensions(tmp_path) == 0
+    assert (tmp_path / "IMG_2.HEIC").read_bytes() == HEIC_BYTES
+
+
+def test_a_real_png_keeps_its_name(tmp_path):
+    """PNG is a format the build handles; renaming it would be a lie about its bytes."""
+    (tmp_path / "IMG_3.PNG").write_bytes(PNG_BYTES)
+
+    assert album._normalise_extensions(tmp_path) == 0
+    assert (tmp_path / "IMG_3.PNG").read_bytes() == PNG_BYTES
+
+
+def test_a_rename_never_overwrites_an_existing_file(tmp_path):
+    """Two library assets can share a stem, and one of them must not eat the other."""
+    (tmp_path / "IMG_4.HEIC").write_bytes(JPEG_BYTES)
+    (tmp_path / "IMG_4.jpeg").write_bytes(b"\xff\xd8\xffalready here")
+
+    assert album._normalise_extensions(tmp_path) == 1
+    assert (tmp_path / "IMG_4.jpeg").read_bytes() == b"\xff\xd8\xffalready here"
+    assert (tmp_path / "IMG_4-1.jpeg").read_bytes() == JPEG_BYTES
+
+
+def test_the_osxphotos_export_database_is_left_alone(tmp_path):
+    """osxphotos writes .osxphotos_export.db into the destination; it is not a photo."""
+    database = tmp_path / ".osxphotos_export.db"
+    database.write_bytes(b"\xff\xd8\xffnot really a jpeg")
+
+    assert album._normalise_extensions(tmp_path) == 0
+    assert database.exists()
+
+
 HUGE = 10**12
 
 
@@ -500,6 +555,71 @@ def test_a_short_export_is_refused_when_the_report_is_in_the_real_format(tmp_pat
             in_album=5,
             replace=True,
             runner=runner_claiming_five_writing_one,
+            free_space=lambda p: HUGE,
+        )
+
+    assert "fewer" in excinfo.value.message.lower()
+    assert (target / "old.jpeg").read_bytes() == b"old"
+
+
+def test_jpegs_under_a_heic_name_do_not_block_the_swap(tmp_path):
+    """The real bug: a perfect export was refused because 46% of it was miscounted.
+
+    `_image_files` counts .jpg/.jpeg/.png, so HEIC-named JPEGs were invisible to
+    the truncation gate and `len(written) < report.exported` refused a run that
+    had exported everything.
+    """
+    target = tmp_path / "trip"
+
+    def runner_writing_a_heic_named_jpeg(command):
+        destination = Path(command[2])
+        assert destination.is_dir(), (
+            f"osxphotos requires DEST to exist before it runs: {destination}"
+        )
+        (destination / "a.jpg").write_bytes(JPEG_BYTES)
+        (destination / "b.HEIC").write_bytes(JPEG_BYTES)
+        Path(command[command.index("--report") + 1]).write_text(
+            REAL_OSXPHOTOS_HEADER + REAL_EXPORTED_ROW * 2, encoding="utf-8"
+        )
+        return 0
+
+    report = export_album(
+        "A",
+        target,
+        in_album=2,
+        runner=runner_writing_a_heic_named_jpeg,
+        free_space=lambda p: HUGE,
+    )
+
+    assert sorted(p.name for p in target.iterdir()) == ["a.jpg", "b.jpeg"]
+    assert report.exported == 2
+
+
+def test_a_genuine_heic_still_refuses_the_swap(tmp_path):
+    """The spec's "No HEIC file reaches the trip folder" must still hold."""
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    def runner_writing_a_real_heic(command):
+        destination = Path(command[2])
+        assert destination.is_dir(), (
+            f"osxphotos requires DEST to exist before it runs: {destination}"
+        )
+        (destination / "a.jpg").write_bytes(JPEG_BYTES)
+        (destination / "b.HEIC").write_bytes(HEIC_BYTES)
+        Path(command[command.index("--report") + 1]).write_text(
+            REAL_OSXPHOTOS_HEADER + REAL_EXPORTED_ROW * 2, encoding="utf-8"
+        )
+        return 0
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=2,
+            replace=True,
+            runner=runner_writing_a_real_heic,
             free_space=lambda p: HUGE,
         )
 

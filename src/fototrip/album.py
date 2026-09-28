@@ -194,6 +194,49 @@ def _free_space(path: Path) -> int:
     return shutil.disk_usage(probe).free
 
 
+_JPEG_MAGIC = b"\xff\xd8\xff"
+
+
+def _normalise_extensions(folder: Path) -> int:
+    """Rename files whose bytes are JPEG but whose name says otherwise.
+
+    An iCloud Shared Album hands out JPEG bytes under the original HEIC name --
+    1170 of one real album's 2563 photos -- so --convert-to-jpeg has nothing to
+    convert and keeps the name. Left alone those files are not counted as images
+    by the swap gate, and the trip folder would claim a format it does not hold.
+
+    Content decides, never the extension: a genuine HEIC is left exactly as it
+    is, so it still fails the count and still refuses the swap, which is what
+    the spec asks for.
+
+    Hidden files and dot-directories are skipped, mirroring `_image_files`:
+    renaming one could never help the count, and `.osxphotos_export.db` belongs
+    to osxphotos, not to us.
+    """
+    renamed = 0
+    for path in sorted(folder.rglob("*")):
+        if not path.is_file() or path.suffix.lower() in {".jpg", ".jpeg"}:
+            continue
+        if path.name.startswith("."):
+            continue
+        if any(part.startswith(".") for part in path.relative_to(folder).parts[:-1]):
+            continue
+        try:
+            with path.open("rb") as handle:
+                if handle.read(len(_JPEG_MAGIC)) != _JPEG_MAGIC:
+                    continue
+        except OSError:
+            continue
+        target = path.with_suffix(".jpeg")
+        counter = 1
+        while target.exists():
+            target = path.with_name(f"{path.stem}-{counter}.jpeg")
+            counter += 1
+        path.rename(target)
+        renamed += 1
+    return renamed
+
+
 def _image_files(folder: Path) -> list[Path]:
     """Every file `find_photos` would pick up, and nothing else.
 
@@ -331,6 +374,11 @@ def export_album(
             f"osxphotos exited with status {exit_code}. {destination} was not touched; "
             f"the partial export is in {incoming}."
         )
+
+    # Before anything is counted: a shared album's JPEG-bytes-under-a-HEIC-name
+    # files are invisible to _image_files, which would refuse a perfect export.
+    if incoming.is_dir():
+        _normalise_extensions(incoming)
 
     read_osxphotos_report(report_path, report)
     written = _image_files(incoming) if incoming.is_dir() else []
