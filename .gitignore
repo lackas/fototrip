@@ -1,6 +1,12 @@
 # Trip photo folders — inputs live beside the code but are never committed.
 /2026-07 Argentina/
 
+# What `fototrip export-album` stages beside the trip folder: a partial export
+# and a run report listing every filename and library UUID. Both survive a
+# refusal on purpose, as evidence, and neither belongs in the repo.
+/2026-07 Argentina.*
+*.report.csv
+
 # Raw media, wherever it turns up. PNG/SVG/ICO stay allowed for site assets.
 *.jpeg
 *.jpg

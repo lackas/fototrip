@@ -8,6 +8,7 @@ import pytest
 from fototrip import album
 from fototrip.album import (
     MEGABYTES_PER_PHOTO,
+    MINIMUM_FREE_BYTES,
     ExportReport,
     ExportRefused,
     _human_bytes,
@@ -24,6 +25,30 @@ def test_report_names_the_album_and_the_counts():
     rendered = report.render()
     assert '2563 photos in album "2026-07 Argentina"' in rendered
     assert "2551 exported" in rendered
+
+
+def test_the_report_says_how_many_photos_the_run_never_mentioned():
+    """The invariant is exported + skipped == the album's size.
+
+    The feature exists because ten days of a trip were missing and nothing in
+    the build could tell "not exported" from "not taken".
+    """
+    report = ExportReport(album="A", in_album=10, exported=7)
+    report.failed["export failed"] = 1
+    rendered = report.render()
+    assert "2 not accounted for by the run report" in rendered
+
+
+def test_the_report_stays_quiet_when_every_photo_is_accounted_for():
+    report = ExportReport(album="A", in_album=3, exported=2)
+    report.failed["could not download"] = 1
+    assert "accounted for" not in report.render()
+
+
+def test_the_report_says_so_when_more_files_came_out_than_the_album_holds():
+    """More than the album holds means the export wrote a photo twice."""
+    rendered = ExportReport(album="A", in_album=2, exported=3).render()
+    assert "1 more files than the album holds" in rendered
 
 
 def test_report_lists_failures_with_their_reason():
@@ -296,6 +321,21 @@ def test_a_report_in_the_format_osxphotos_actually_writes_is_counted(tmp_path):
     assert report.failed == Counter()
 
 
+def test_hidden_files_and_appledouble_sidecars_are_not_counted_as_photos(tmp_path):
+    """The count must agree with scan.find_photos, which excludes these.
+
+    Counting a file the build will not include biases the swap gate toward
+    accepting a short export.
+    """
+    (tmp_path / "real.jpg").write_bytes(b"jpegdata")
+    (tmp_path / "._IMG_1.jpg").write_bytes(b"appledouble")
+    (tmp_path / ".hidden.jpg").write_bytes(b"hidden")
+    (tmp_path / ".thumbnails").mkdir()
+    (tmp_path / ".thumbnails" / "IMG_1.jpg").write_bytes(b"cached")
+
+    assert [p.name for p in album._image_files(tmp_path)] == ["real.jpg"]
+
+
 HUGE = 10**12
 
 
@@ -349,6 +389,8 @@ def test_a_non_empty_target_without_replace_is_refused(tmp_path):
         )
 
     assert "--replace" in excinfo.value.message
+    # Naming what is in the way, not just counting it.
+    assert "old.jpeg" in excinfo.value.message
     assert (target / "old.jpeg").exists()
 
 
@@ -473,23 +515,28 @@ def test_too_little_free_space_is_refused_before_exporting(tmp_path):
 
 
 def test_the_space_estimate_scales_with_the_album_size(tmp_path):
-    """2563 photos must need more room than 10 do."""
+    """10_000 photos must need more room than 10 do.
+
+    Both branches see the same free space, and it is deliberately above
+    MINIMUM_FREE_BYTES: what separates them is the album size, not the floor.
+    """
     target = tmp_path / "trip"
-    small = MEGABYTES_PER_PHOTO * 10 * 1_000_000 * 2
+    free = MEGABYTES_PER_PHOTO * 1_000 * 1_000_000 * 2
+    assert free > MINIMUM_FREE_BYTES
     export_album(
         "A",
         target,
         in_album=10,
         runner=_runner_that_writes(),
-        free_space=lambda p: small,
+        free_space=lambda p: free,
     )
     with pytest.raises(ExportRefused):
         export_album(
             "A",
             tmp_path / "trip2",
-            in_album=2563,
+            in_album=10_000,
             runner=_runner_that_writes(),
-            free_space=lambda p: small,
+            free_space=lambda p: free,
         )
 
 
@@ -703,14 +750,170 @@ def test_refuses_to_replace_a_parent_of_the_current_working_directory(tmp_path, 
     assert (target / "old.jpeg").exists()
 
 
+def test_too_little_free_space_is_refused_even_without_expect(tmp_path):
+    """The spec's space check is unconditional; --expect only makes it sharper."""
+    ran = []
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            tmp_path / "trip",
+            in_album=0,
+            runner=lambda command: ran.append(command) or 0,
+            free_space=lambda p: 100_000_000,
+        )
+    assert ran == []
+    assert "space" in excinfo.value.message.lower()
+
+
+def test_a_staging_folder_that_cannot_be_cleared_is_refused(tmp_path, monkeypatch):
+    """A partial clear would mix two albums in one folder, and pass the gate.
+
+    Leftovers left beside the new export make `len(written) >= exported` easier
+    to satisfy, so a suppressed rmtree error ends in a successful swap.
+    """
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+    stale = tmp_path / "trip.incoming"
+    stale.mkdir()
+    (stale / "from_another_album.jpg").write_bytes(b"stale")
+
+    def refusing_rmtree(path, *args, **kwargs):
+        raise OSError("Operation not permitted")
+
+    monkeypatch.setattr(album.shutil, "rmtree", refusing_rmtree)
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            replace=True,
+            runner=_runner_that_writes(("new.jpg",)),
+            free_space=lambda p: HUGE,
+        )
+
+    assert "trip.incoming" in excinfo.value.message
+    assert (target / "old.jpeg").read_bytes() == b"old"
+    assert (stale / "from_another_album.jpg").exists()
+
+
+def test_a_staging_folder_that_is_a_symlink_is_refused(tmp_path):
+    """rmtree refuses a symlink, and following it would delete someone's folder."""
+    target = tmp_path / "trip"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "not_ours.jpg").write_bytes(b"keep")
+    (tmp_path / "trip.incoming").symlink_to(elsewhere)
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            runner=_runner_that_writes(("new.jpg",)),
+            free_space=lambda p: HUGE,
+        )
+
+    assert "trip.incoming" in excinfo.value.message
+    assert (elsewhere / "not_ours.jpg").read_bytes() == b"keep"
+
+
+def test_a_destination_that_is_a_file_is_refused(tmp_path):
+    """A file slips every is_dir() guard and dies on the final rename instead.
+
+    The refusal has to come before anything is staged: an hour of exporting
+    followed by a bare NotADirectoryError is not a clear message.
+    """
+    target = tmp_path / "trip"
+    target.write_bytes(b"not a folder")
+    ran = []
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            replace=True,
+            runner=lambda command: ran.append(command) or 0,
+            free_space=lambda p: HUGE,
+        )
+
+    assert "not a directory" in excinfo.value.message.lower()
+    assert ran == []
+    assert not (tmp_path / "trip.incoming").exists()
+    assert target.read_bytes() == b"not a folder"
+
+
+def test_a_destination_that_is_a_symlink_to_a_directory_is_refused(tmp_path):
+    """Renaming the link would put the photos on the parent's volume."""
+    real = tmp_path / "photos_on_another_volume"
+    real.mkdir()
+    (real / "old.jpeg").write_bytes(b"old")
+    target = tmp_path / "trip"
+    target.symlink_to(real)
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            replace=True,
+            runner=_runner_that_writes(),
+            free_space=lambda p: HUGE,
+        )
+
+    assert "symlink" in excinfo.value.message.lower()
+    assert target.is_symlink()
+    assert (real / "old.jpeg").read_bytes() == b"old"
+
+
+def test_a_rollback_that_also_fails_still_names_both_folders(tmp_path, monkeypatch):
+    """Nothing is lost, but only a message can tell the user where it went."""
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    real_rename = Path.rename
+
+    def rename(self, other):
+        if Path(other) == target:
+            raise OSError("no")
+        return real_rename(self, other)
+
+    monkeypatch.setattr(Path, "rename", rename)
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            replace=True,
+            runner=_runner_that_writes(("new.jpg",)),
+            free_space=lambda p: HUGE,
+        )
+
+    message = excinfo.value.message
+    assert "could not put" in message.lower()
+    assert str(tmp_path / "trip.previous") in message
+    assert str(tmp_path / "trip.incoming") in message
+    assert (tmp_path / "trip.previous" / "old.jpeg").read_bytes() == b"old"
+    assert (tmp_path / "trip.incoming" / "new.jpg").exists()
+
+
 def test_free_space_reports_the_volume_under_a_path_that_does_not_exist_yet(tmp_path):
     """The precheck runs before the folder exists, so it walks up to one that does."""
     assert album._free_space(tmp_path / "not" / "there" / "yet") > 0
 
 
 def test_require_tools_is_satisfied_when_both_are_present(monkeypatch):
-    monkeypatch.setattr("fototrip.album.shutil.which", lambda name: f"/usr/bin/{name}")
+    """Both tools must actually be looked for; an empty body would pass otherwise."""
+    asked = []
+    monkeypatch.setattr(
+        "fototrip.album.shutil.which", lambda name: asked.append(name) or f"/usr/bin/{name}"
+    )
     require_tools()  # does not raise
+    assert asked == ["osxphotos", "exiftool"]
 
 
 def test_a_missing_osxphotos_names_the_extra_to_install(monkeypatch):

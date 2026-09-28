@@ -15,6 +15,30 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# Rough per-photo estimate for the space precheck. The Photos library records
+# no byte count for shared-album assets, so this cannot be exact; it exists to
+# catch "this will obviously not fit", not to predict the final size. Measured
+# against a real album: 2563 photos, mostly ~2048px, came to about 2.7 GB.
+MEGABYTES_PER_PHOTO = 1.5
+
+#: The precheck demands this much more than the estimate before starting.
+SPACE_MARGIN = 1.5
+
+#: Refused below this much free space whatever the album size, so the check in
+#: the spec ("stops rather than filling the volume") holds even without
+#: --expect. It catches "this will obviously not fit", nothing finer.
+MINIMUM_FREE_BYTES = 2_000_000_000
+
+# What --convert-to-jpeg is expected to leave behind. A file the export produced
+# in some other format is counted by the run report but not here, which fails
+# toward a refusal rather than toward a bad swap.
+IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png"})
+
+
+#: What osxphotos writes for a true cell. Its CSV writer emits 1/0 and its JSON
+#: writer emits true/false; see _is_true.
+_TRUE_VALUES = frozenset({"1", "true", "yes"})
+
 
 def _human_bytes(count: int) -> str:
     """Bytes as a short decimal string: 4_900_000_000 -> '4.9 GB'.
@@ -38,9 +62,6 @@ def _human_bytes(count: int) -> str:
         if rounded < 1000 or unit == "TB":
             return f"{rounded:.1f} {unit}"
 
-    # Should never reach here, but fallback to TB
-    return f"{value:.1f} TB"
-
 
 @dataclass
 class ExportReport:
@@ -59,14 +80,21 @@ class ExportReport:
             lines.append(f"{sum(self.failed.values())} skipped:")
             for reason, count in self.failed.most_common():
                 lines.append(f"  {count:>5}  {reason}")
+        # Exported plus skipped should equal the album's size. Report a
+        # disagreement rather than refuse on it: a legitimate run can be short
+        # for reasons nothing here can distinguish, and the whole point of the
+        # feature is that "not exported" must not look like "not taken".
+        if self.in_album:
+            unaccounted = self.in_album - self.exported - sum(self.failed.values())
+            if unaccounted > 0:
+                lines.append(f"{unaccounted} not accounted for by the run report")
+            elif unaccounted < 0:
+                lines.append(f"{-unaccounted} more files than the album holds -- duplicates?")
         if self.bytes_written:
             lines.append(f"{_human_bytes(self.bytes_written)} written")
         return "\n".join(lines)
 
 
-# Everything the export needs, and nothing that writes back to the library.
-# Built as a list, never a shell string: an album name is user input and must
-# stay one argument no matter what it contains.
 def build_command(
     album: str,
     destination: Path,
@@ -75,7 +103,15 @@ def build_command(
     jpeg_quality: float = 0.9,
     osxphotos: str = "osxphotos",
 ) -> list[str]:
-    """The `osxphotos export` command line for one album."""
+    """The `osxphotos export` command line for one album.
+
+    Everything the export needs, and nothing that writes back to the library.
+    Built as a list, never a shell string: an album name is user input and must
+    stay one argument no matter what it contains. The four --skip flags are what
+    make one album photo exactly one file: without them an edited photo, a burst
+    or a RAW+JPEG pair each arrive several times, and every duplicate becomes
+    another pin on the same spot at the same second.
+    """
     return [
         osxphotos,
         "export",
@@ -95,9 +131,6 @@ def build_command(
         "--report",
         str(report_path),
     ]
-
-
-_TRUE_VALUES = frozenset({"1", "true", "yes"})
 
 
 def _is_true(value: str | None) -> bool:
@@ -141,23 +174,12 @@ def read_osxphotos_report(path: Path, report: ExportReport) -> None:
             report.failed["export failed"] += 1
 
 
-# Rough per-photo estimate for the space precheck. The Photos library records
-# no byte count for shared-album assets, so this cannot be exact; it exists to
-# catch "this will obviously not fit", not to predict the final size. Measured
-# against a real album: 2563 photos, mostly ~2048px, came to about 2.7 GB.
-MEGABYTES_PER_PHOTO = 1.5
-
-#: The precheck demands this much more than the estimate before starting.
-SPACE_MARGIN = 1.5
-
-# What --convert-to-jpeg is expected to leave behind. A file the export produced
-# in some other format is counted by the run report but not here, which fails
-# toward a refusal rather than toward a bad swap.
-IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png"})
-
-
 class ExportRefused(Exception):
-    """The export did not happen, and the target was not touched."""
+    """The export did not finish usefully, and the target was not touched.
+
+    A partial export may well exist, and several raise sites say where it is.
+    What all of them guarantee is the second half: `destination` is as it was.
+    """
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
@@ -172,7 +194,24 @@ def _free_space(path: Path) -> int:
 
 
 def _image_files(folder: Path) -> list[Path]:
-    return [p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES]
+    """Every file `find_photos` would pick up, and nothing else.
+
+    The exclusions repeat `scan.find_photos` deliberately -- hidden files,
+    AppleDouble sidecars and dot-directories carry image extensions but no image
+    data. This module imports nothing from the package, so the rule is stated
+    twice; it must agree with `src/fototrip/scan.py`, because counting a file the
+    build will not include biases the swap gate toward accepting.
+    """
+    found = []
+    for path in folder.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        if path.name.startswith("."):
+            continue
+        if any(part.startswith(".") for part in path.relative_to(folder).parts[:-1]):
+            continue
+        found.append(path)
+    return found
 
 
 def export_album(
@@ -191,14 +230,29 @@ def export_album(
     Raises ExportRefused, without touching `destination`, for every reason the
     export should not proceed or its result should not be trusted.
     """
-    if runner is None:  # pragma: no cover - the real runner lives in Task 5
+    if runner is None:  # pragma: no cover - a programming error, not a user path
         raise ValueError("export_album needs a runner")
 
     destination = Path(destination)
+    # Tested before exists(), which follows the link. Renaming the link would
+    # replace it with a real folder on the parent's volume and leave `.previous`
+    # dangling; a plain file passes every is_dir() guard below and then dies on
+    # the final rename with a bare NotADirectoryError.
+    if destination.is_symlink():
+        raise ExportRefused(
+            f"{destination} is a symlink. Point --out at the real folder: replacing a "
+            "symlink would put the photos on the wrong volume."
+        )
+    if destination.exists() and not destination.is_dir():
+        raise ExportRefused(f"{destination} is not a directory.")
+
     existing = sorted(destination.iterdir()) if destination.is_dir() else []
     if existing and not replace:
+        named = ", ".join(p.name for p in existing[:2])
+        if len(existing) > 2:
+            named += ", ..."
         raise ExportRefused(
-            f"{destination} already holds {len(existing)} entries. "
+            f"{destination} already holds {len(existing)} entries ({named}). "
             "Pass --replace to empty it and fill it from the album."
         )
 
@@ -223,7 +277,10 @@ def export_album(
             "then try again."
         )
 
-    needed = int(in_album * MEGABYTES_PER_PHOTO * 1_000_000 * SPACE_MARGIN)
+    needed = max(
+        int(in_album * MEGABYTES_PER_PHOTO * 1_000_000 * SPACE_MARGIN),
+        MINIMUM_FREE_BYTES,
+    )
     available = free_space(parent)
     if available < needed:
         raise ExportRefused(
@@ -232,7 +289,22 @@ def export_album(
         )
 
     incoming = parent / f"{destination.name}.incoming"
-    shutil.rmtree(incoming, ignore_errors=True)
+    # A suppressed failure here would leave another album's files beside the new
+    # export, and extras only make the truncation check easier to satisfy.
+    # `exists()` is False for a dangling symlink and rmtree refuses a symlink, so
+    # a link is refused rather than followed -- it may point at someone's folder.
+    if incoming.is_symlink():
+        raise ExportRefused(
+            f"The staging folder {incoming} is a symlink. Move or delete it, then try again."
+        )
+    if incoming.exists():
+        try:
+            shutil.rmtree(incoming)
+        except OSError as error:
+            raise ExportRefused(
+                f"Could not clear the staging folder {incoming}: {error}. "
+                "Move or delete it, then try again."
+            ) from error
 
     report = ExportReport(album=album, in_album=in_album)
     report_path = incoming.parent / f"{destination.name}.report.csv"
@@ -268,12 +340,16 @@ def export_album(
 
     report.bytes_written = sum(p.stat().st_size for p in written)
 
-    # The one destructive step, made interruptible. Both moves are atomic renames,
-    # so an interruption leaves either the complete old folder or the complete new
-    # one -- never a missing trip folder. `.previous` IS the old folder, renamed
-    # rather than copied, so peak disk usage is unchanged. Only a folder THIS run
-    # created is ever deleted, and never with errors suppressed: a failed cleanup
-    # must be visible rather than leave a silent duplicate of the whole folder.
+    # The one destructive step. What it guarantees is that the photos are never
+    # destroyed: both moves are renames, and the old folder is deleted only once
+    # the new one is already in place. It is NOT atomic -- between the two renames
+    # there is no trip folder at all, and a SIGKILL there leaves the photos at
+    # `<folder>.previous`, which the next run refuses rather than deletes. An
+    # atomic swap would need renamex_np(RENAME_SWAP), which the stdlib does not
+    # expose. `.previous` IS the old folder, renamed rather than copied, so peak
+    # disk usage is unchanged. Only a folder THIS run created is ever deleted, and
+    # never with errors suppressed: a failed cleanup must be visible rather than
+    # leave a silent duplicate of the whole folder.
     renamed_aside = False
     if destination.is_dir():
         destination.rename(previous)
@@ -282,7 +358,14 @@ def export_album(
         incoming.rename(destination)
     except OSError as error:
         if renamed_aside:
-            previous.rename(destination)  # put it back exactly as it was
+            try:
+                previous.rename(destination)  # put it back exactly as it was
+            except OSError:
+                raise ExportRefused(
+                    f"Could not move the export into place ({error}), and could not put "
+                    f"the old folder back either. Nothing was deleted: the old folder is "
+                    f"at {previous} and the export is in {incoming}."
+                ) from error
         raise ExportRefused(
             f"Could not move the export into place: {error}. "
             f"{destination} is as it was; the export is in {incoming}."

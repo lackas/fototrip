@@ -242,7 +242,7 @@ def serve(folder, port) -> None:
     "-o",
     "--out",
     "destination",
-    type=click.Path(path_type=Path),
+    type=click.Path(file_okay=False, path_type=Path),
     required=True,
     help="Trip folder to fill.",
 )
@@ -260,15 +260,15 @@ def serve(folder, port) -> None:
     help="How many photos the album holds. Enables the free-space check and "
     "names the album's size in the report.",
 )
-@click.option("--jpeg-quality", default=0.9, show_default=True)
+@click.option("--jpeg-quality", type=click.FloatRange(0, 1), default=0.9, show_default=True)
 @click.option("--osxphotos", default="osxphotos", show_default=True, help="Path to osxphotos.")
 def export_album_command(album, destination, replace, in_album, jpeg_quality, osxphotos) -> None:
     """Fill a trip folder from the Photos.app album ALBUM."""
     if not in_album:
         click.echo(
-            "No --expect given, so the free-space check is off. Pass --expect with "
-            "the album's photo count to enable it. The export is still verified "
-            "against the run report either way.\n"
+            "No --expect given, so the free-space check is off beyond an absolute "
+            "floor. Pass --expect with the album's photo count to enable it. The "
+            "export is still verified against the run report either way.\n"
         )
     try:
         require_tools(osxphotos)
