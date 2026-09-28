@@ -150,7 +150,9 @@ def test_the_command_really_fills_the_folder(tmp_path, monkeypatch):
 
     def fake_osxphotos(command):
         destination = Path(command[2])
-        destination.mkdir(parents=True, exist_ok=True)
+        assert destination.is_dir(), (
+            f"osxphotos requires DEST to exist before it runs: {destination}"
+        )
         for name in ("IMG_1.jpg", "IMG_2.jpg"):
             (destination / name).write_bytes(b"jpegdata")
         Path(command[command.index("--report") + 1]).write_text(

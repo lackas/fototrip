@@ -340,11 +340,20 @@ HUGE = 10**12
 
 
 def _runner_that_writes(files=("a.jpg",), exit_code=0, report_rows=None):
-    """A stand-in osxphotos: writes files into the destination, then exits."""
+    """A stand-in osxphotos: writes files into the destination, then exits.
+
+    It deliberately does NOT create the destination. osxphotos declares its
+    DEST argument `exists=True` and refuses a directory that is not already
+    there, so a double that mkdirs it would hide the caller's obligation --
+    which is exactly how `export_album` reached eleven commits unable to run
+    against the real tool even once.
+    """
 
     def run(command):
         destination = Path(command[2])
-        destination.mkdir(parents=True, exist_ok=True)
+        assert destination.is_dir(), (
+            f"osxphotos requires DEST to exist before it runs: {destination}"
+        )
         for name in files:
             (destination / name).write_bytes(b"jpegdata")
         report_path = Path(command[command.index("--report") + 1])
@@ -475,7 +484,9 @@ def test_a_short_export_is_refused_when_the_report_is_in_the_real_format(tmp_pat
 
     def runner_claiming_five_writing_one(command):
         destination = Path(command[2])
-        destination.mkdir(parents=True, exist_ok=True)
+        assert destination.is_dir(), (
+            f"osxphotos requires DEST to exist before it runs: {destination}"
+        )
         (destination / "only_one.jpg").write_bytes(b"jpegdata")
         Path(command[command.index("--report") + 1]).write_text(
             REAL_OSXPHOTOS_HEADER + REAL_EXPORTED_ROW * 5, encoding="utf-8"
@@ -684,7 +695,9 @@ def test_a_run_whose_report_cannot_be_read_does_not_replace_anything(tmp_path):
 
     def runner_that_writes_no_report(command):
         destination = Path(command[2])
-        destination.mkdir(parents=True, exist_ok=True)
+        assert destination.is_dir(), (
+            f"osxphotos requires DEST to exist before it runs: {destination}"
+        )
         (destination / "one_of_many.jpg").write_bytes(b"jpegdata")
         return 0
 

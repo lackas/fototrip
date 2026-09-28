@@ -312,6 +312,13 @@ def export_album(
                 "Move or delete it, then try again."
             ) from error
 
+    # osxphotos declares its DEST argument `exists=True` and refuses a directory
+    # that is not already there, so creating it is the caller's obligation.
+    try:
+        incoming.mkdir(parents=True)
+    except OSError as error:
+        raise ExportRefused(f"Could not create the staging folder {incoming}: {error}.") from error
+
     report = ExportReport(album=album, in_album=in_album)
     report_path = incoming.parent / f"{destination.name}.report.csv"
     exit_code = runner(
