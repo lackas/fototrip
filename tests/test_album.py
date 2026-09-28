@@ -1,4 +1,6 @@
-from fototrip.album import ExportReport, _human_bytes
+from pathlib import Path
+
+from fototrip.album import ExportReport, _human_bytes, build_command
 
 
 def test_report_names_the_album_and_the_counts():
@@ -102,3 +104,65 @@ def test_human_bytes_boundary_gb_to_tb():
 def test_human_bytes_above_terabyte():
     """Values above terabyte render in TB (last unit)."""
     assert _human_bytes(5_500_000_000_000) == "5.5 TB"
+
+
+def _command(album="2026-07 Argentina", **kwargs):
+    return build_command(album, Path("/tmp/out.incoming"), Path("/tmp/report.csv"), **kwargs)
+
+
+def test_command_exports_the_named_album_to_the_destination():
+    command = _command()
+    assert command[0] == "osxphotos"
+    assert command[1] == "export"
+    assert "/tmp/out.incoming" in command
+    assert command[command.index("--album") + 1] == "2026-07 Argentina"
+
+
+def test_command_converts_to_jpeg_and_writes_metadata():
+    command = _command()
+    assert "--convert-to-jpeg" in command
+    assert "--exiftool" in command
+    assert command[command.index("--jpeg-quality") + 1] == "0.9"
+
+
+def test_command_takes_photos_only_and_no_live_motion():
+    command = _command()
+    assert "--only-photos" in command
+    assert "--skip-live" in command
+
+
+def test_command_downloads_missing_originals_and_asks_for_a_report():
+    command = _command()
+    assert "--download-missing" in command
+    assert command[command.index("--report") + 1] == "/tmp/report.csv"
+
+
+def test_command_never_writes_to_the_library():
+    """The library is read-only. No flag may put anything back into Photos."""
+    forbidden = {
+        "--add-exported-to-album",
+        "--add-skipped-to-album",
+        "--add-missing-to-album",
+        "--post-command",
+        "--post-function",
+        "--run-command",
+    }
+    assert forbidden.isdisjoint(_command())
+
+
+def test_an_album_name_that_looks_like_a_flag_stays_an_argument():
+    """A hostile or merely odd album name must never become another option."""
+    command = build_command('--delete-file"; rm -rf /', Path("/tmp/out"), Path("/tmp/r.csv"))
+    assert command[command.index("--album") + 1] == '--delete-file"; rm -rf /'
+    assert command.count("--album") == 1
+    assert "--delete-file" not in command
+
+
+def test_a_multiline_album_name_is_still_one_argument():
+    command = build_command("line one\nline two", Path("/tmp/out"), Path("/tmp/r.csv"))
+    assert command[command.index("--album") + 1] == "line one\nline two"
+
+
+def test_the_osxphotos_executable_can_be_overridden():
+    command = _command(osxphotos="/opt/homebrew/bin/osxphotos")
+    assert command[0] == "/opt/homebrew/bin/osxphotos"

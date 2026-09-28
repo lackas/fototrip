@@ -9,6 +9,7 @@ The Photos library is only ever read. Nothing here writes to it.
 
 from collections import Counter
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 def _human_bytes(count: int) -> str:
@@ -61,3 +62,33 @@ class ExportReport:
         if self.bytes_written:
             lines.append(f"{_human_bytes(self.bytes_written)} written")
         return "\n".join(lines)
+
+
+# Everything the export needs, and nothing that writes back to the library.
+# Built as a list, never a shell string: an album name is user input and must
+# stay one argument no matter what it contains.
+def build_command(
+    album: str,
+    destination: Path,
+    report_path: Path,
+    *,
+    jpeg_quality: float = 0.9,
+    osxphotos: str = "osxphotos",
+) -> list[str]:
+    """The `osxphotos export` command line for one album."""
+    return [
+        osxphotos,
+        "export",
+        str(destination),
+        "--album",
+        album,
+        "--only-photos",
+        "--skip-live",
+        "--convert-to-jpeg",
+        "--jpeg-quality",
+        str(jpeg_quality),
+        "--exiftool",
+        "--download-missing",
+        "--report",
+        str(report_path),
+    ]
