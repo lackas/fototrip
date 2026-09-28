@@ -8,6 +8,8 @@ The Photos library is only ever read. Nothing here writes to it.
 """
 
 import csv
+import os
+import shutil
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -129,3 +131,126 @@ def read_osxphotos_report(path: Path, report: ExportReport) -> None:
             report.failed[error] += 1
         else:
             report.failed["export failed"] += 1
+
+
+# Rough per-photo estimate for the space precheck. The Photos library records
+# no byte count for shared-album assets, so this cannot be exact; it exists to
+# catch "this will obviously not fit", not to predict the final size. Measured
+# against a real album: 2563 photos, mostly ~2048px, came to about 2.7 GB.
+MEGABYTES_PER_PHOTO = 1.5
+
+#: The precheck demands this much more than the estimate before starting.
+SPACE_MARGIN = 1.5
+
+IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png"})
+
+
+class ExportRefused(Exception):
+    """The export did not happen, and the target was not touched."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+def _free_space(path: Path) -> int:
+    probe = path
+    while not probe.exists():
+        probe = probe.parent
+    return shutil.disk_usage(probe).free
+
+
+def _image_files(folder: Path) -> list[Path]:
+    return [p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES]
+
+
+def export_album(
+    album: str,
+    destination: Path,
+    *,
+    in_album: int,
+    replace: bool = False,
+    runner=None,
+    free_space=_free_space,
+    jpeg_quality: float = 0.9,
+    osxphotos: str = "osxphotos",
+) -> ExportReport:
+    """Fill `destination` with `album`'s photos, replacing it only on success.
+
+    Raises ExportRefused, without touching `destination`, for every reason the
+    export should not proceed or its result should not be trusted.
+    """
+    if runner is None:  # pragma: no cover - the real runner lives in Task 5
+        raise ValueError("export_album needs a runner")
+
+    destination = Path(destination)
+    existing = sorted(destination.iterdir()) if destination.is_dir() else []
+    if existing and not replace:
+        raise ExportRefused(
+            f"{destination} already holds {len(existing)} entries. "
+            "Pass --replace to empty it and fill it from the album."
+        )
+
+    # Replacing the directory the process is standing in leaves it with no cwd.
+    if destination.is_dir() and destination.resolve() in (Path.cwd(), *Path.cwd().parents):
+        raise ExportRefused(
+            f"{destination} is the current working directory (or contains it). "
+            "Run this from somewhere else."
+        )
+
+    parent = destination.parent
+    if not parent.is_dir():
+        raise ExportRefused(f"{parent} does not exist.")
+    if not os.access(parent, os.W_OK):
+        raise ExportRefused(f"{parent} is not writable, so the export cannot be staged there.")
+
+    needed = int(in_album * MEGABYTES_PER_PHOTO * 1_000_000 * SPACE_MARGIN)
+    available = free_space(parent)
+    if available < needed:
+        raise ExportRefused(
+            f"Not enough space: about {_human_bytes(needed)} needed for {in_album} photos, "
+            f"{_human_bytes(available)} free on {parent}."
+        )
+
+    incoming = parent / f"{destination.name}.incoming"
+    shutil.rmtree(incoming, ignore_errors=True)
+
+    report = ExportReport(album=album, in_album=in_album)
+    report_path = incoming.parent / f"{destination.name}.report.csv"
+    exit_code = runner(
+        build_command(album, incoming, report_path, jpeg_quality=jpeg_quality, osxphotos=osxphotos)
+    )
+
+    if exit_code != 0:
+        raise ExportRefused(
+            f"osxphotos exited with status {exit_code}. {destination} was not touched; "
+            f"the partial export is in {incoming}."
+        )
+
+    read_osxphotos_report(report_path, report)
+    written = _image_files(incoming) if incoming.is_dir() else []
+    if not written:
+        raise ExportRefused(
+            f'The export produced no photos. Is "{album}" the exact album name? '
+            f"{destination} was not touched."
+        )
+    if len(written) < report.exported:
+        raise ExportRefused(
+            f"The export reported {report.exported} photos but wrote fewer ({len(written)}). "
+            f"{destination} was not touched; the partial export is in {incoming}."
+        )
+
+    report.bytes_written = sum(p.stat().st_size for p in written)
+
+    # The one destructive step, made interruptible. Both moves are atomic
+    # renames, so an interruption leaves either the complete old folder or the
+    # complete new one -- never a missing trip folder. `.previous` IS the old
+    # folder, renamed rather than copied, so peak disk usage is unchanged.
+    previous = parent / f"{destination.name}.previous"
+    if destination.is_dir():
+        shutil.rmtree(previous, ignore_errors=True)  # a leftover from a crashed run
+        destination.rename(previous)
+    incoming.rename(destination)
+    shutil.rmtree(previous, ignore_errors=True)
+    report_path.unlink(missing_ok=True)
+    return report

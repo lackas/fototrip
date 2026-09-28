@@ -1,7 +1,19 @@
+import shutil
 from collections import Counter
 from pathlib import Path
 
-from fototrip.album import ExportReport, _human_bytes, build_command, read_osxphotos_report
+import pytest
+
+from fototrip import album
+from fototrip.album import (
+    MEGABYTES_PER_PHOTO,
+    ExportReport,
+    ExportRefused,
+    _human_bytes,
+    build_command,
+    export_album,
+    read_osxphotos_report,
+)
 
 
 def test_report_names_the_album_and_the_counts():
@@ -250,3 +262,273 @@ def test_an_unexpected_column_layout_does_not_raise(tmp_path):
     read_osxphotos_report(path, report)
     assert report.exported == 0
     assert report.failed == Counter()
+
+
+HUGE = 10**12
+
+
+def _runner_that_writes(files=("a.jpg",), exit_code=0, report_rows=None):
+    """A stand-in osxphotos: writes files into the destination, then exits."""
+
+    def run(command):
+        destination = Path(command[2])
+        destination.mkdir(parents=True, exist_ok=True)
+        for name in files:
+            (destination / name).write_bytes(b"jpegdata")
+        report_path = Path(command[command.index("--report") + 1])
+        rows = (
+            report_rows
+            if report_rows is not None
+            else [f"{name},True,True,False,False,True,True,True,False,\n" for name in files]
+        )
+        report_path.write_text(REPORT_HEADER + "".join(rows), encoding="utf-8")
+        return exit_code
+
+    return run
+
+
+def test_a_successful_export_replaces_the_target(tmp_path):
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    report = export_album(
+        "A",
+        target,
+        in_album=2,
+        replace=True,
+        runner=_runner_that_writes(("new1.jpg", "new2.jpg")),
+        free_space=lambda p: HUGE,
+    )
+
+    assert sorted(p.name for p in target.iterdir()) == ["new1.jpg", "new2.jpg"]
+    assert not (tmp_path / "trip.incoming").exists()
+    assert report.exported == 2
+
+
+def test_a_non_empty_target_without_replace_is_refused(tmp_path):
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A", target, in_album=1, runner=_runner_that_writes(), free_space=lambda p: HUGE
+        )
+
+    assert "--replace" in excinfo.value.message
+    assert (target / "old.jpeg").exists()
+
+
+def test_an_empty_target_needs_no_replace_flag(tmp_path):
+    target = tmp_path / "trip"
+    target.mkdir()
+    export_album("A", target, in_album=1, runner=_runner_that_writes(), free_space=lambda p: HUGE)
+    assert (target / "a.jpg").exists()
+
+
+def test_a_missing_target_is_created(tmp_path):
+    target = tmp_path / "trip"
+    export_album("A", target, in_album=1, runner=_runner_that_writes(), free_space=lambda p: HUGE)
+    assert (target / "a.jpg").exists()
+
+
+def test_a_failing_export_leaves_the_target_untouched(tmp_path):
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    with pytest.raises(ExportRefused):
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            replace=True,
+            runner=_runner_that_writes(("partial.jpg",), exit_code=1),
+            free_space=lambda p: HUGE,
+        )
+
+    assert (target / "old.jpeg").read_bytes() == b"old"
+    assert (tmp_path / "trip.incoming" / "partial.jpg").exists()
+
+
+def test_an_export_that_produces_nothing_does_not_replace_anything(tmp_path):
+    """osxphotos exits 0 for an album name it did not match. That is not success."""
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            replace=True,
+            runner=lambda command: 0,
+            free_space=lambda p: HUGE,
+        )
+
+    assert "no photos" in excinfo.value.message.lower()
+    assert (target / "old.jpeg").exists()
+
+
+def test_fewer_files_than_the_report_claims_does_not_replace_anything(tmp_path):
+    """A run that says it exported more than it wrote does not get to swap."""
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    rows = [f"ghost{i}.jpg,True,True,False,False,True,True,True,False,\n" for i in range(5)]
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=5,
+            replace=True,
+            runner=_runner_that_writes(("only_one.jpg",), report_rows=rows),
+            free_space=lambda p: HUGE,
+        )
+
+    assert (target / "old.jpeg").exists()
+    assert "fewer" in excinfo.value.message.lower()
+
+
+def test_too_little_free_space_is_refused_before_exporting(tmp_path):
+    target = tmp_path / "trip"
+    ran = []
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=2563,
+            runner=lambda command: ran.append(command) or 0,
+            free_space=lambda p: 1_000_000,
+        )
+
+    assert ran == []
+    assert "space" in excinfo.value.message.lower()
+    assert not (tmp_path / "trip.incoming").exists()
+
+
+def test_the_space_estimate_scales_with_the_album_size(tmp_path):
+    """2563 photos must need more room than 10 do."""
+    target = tmp_path / "trip"
+    small = MEGABYTES_PER_PHOTO * 10 * 1_000_000 * 2
+    export_album(
+        "A",
+        target,
+        in_album=10,
+        runner=_runner_that_writes(),
+        free_space=lambda p: small,
+    )
+    with pytest.raises(ExportRefused):
+        export_album(
+            "A",
+            tmp_path / "trip2",
+            in_album=2563,
+            runner=_runner_that_writes(),
+            free_space=lambda p: small,
+        )
+
+
+def test_refuses_to_replace_the_current_working_directory(tmp_path, monkeypatch):
+    """Replacing the directory the process is sitting in breaks the process."""
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+    monkeypatch.chdir(target)
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=1,
+            replace=True,
+            runner=_runner_that_writes(),
+            free_space=lambda p: HUGE,
+        )
+
+    assert "working directory" in excinfo.value.message.lower()
+    assert (target / "old.jpeg").exists()
+
+
+def test_an_unwritable_parent_is_refused_with_a_clear_message(tmp_path):
+    parent = tmp_path / "locked"
+    parent.mkdir(mode=0o500)
+    try:
+        with pytest.raises(ExportRefused) as excinfo:
+            export_album(
+                "A",
+                parent / "trip",
+                in_album=1,
+                runner=_runner_that_writes(),
+                free_space=lambda p: HUGE,
+            )
+        assert "writ" in excinfo.value.message.lower()
+    finally:
+        parent.chmod(0o700)
+
+
+def test_a_stale_incoming_folder_from_an_earlier_run_is_cleared_first(tmp_path):
+    target = tmp_path / "trip"
+    stale = tmp_path / "trip.incoming"
+    stale.mkdir()
+    (stale / "leftover.jpg").write_bytes(b"stale")
+
+    export_album(
+        "A",
+        target,
+        in_album=1,
+        runner=_runner_that_writes(("fresh.jpg",)),
+        free_space=lambda p: HUGE,
+    )
+
+    assert sorted(p.name for p in target.iterdir()) == ["fresh.jpg"]
+
+
+def test_the_report_records_the_bytes_actually_written(tmp_path):
+    target = tmp_path / "trip"
+    report = export_album(
+        "A",
+        target,
+        in_album=2,
+        runner=_runner_that_writes(("a.jpg", "b.jpg")),
+        free_space=lambda p: HUGE,
+    )
+    assert report.bytes_written == len(b"jpegdata") * 2
+
+
+def test_the_old_folder_is_deleted_only_after_the_new_one_is_in_place(tmp_path, monkeypatch):
+    """The swap must never leave the target missing.
+
+    The old folder is renamed aside and deleted only once the export is already
+    in place, so an interruption leaves either the complete old folder or the
+    complete new one.
+    """
+    target = tmp_path / "trip"
+    target.mkdir()
+    (target / "old.jpeg").write_bytes(b"old")
+
+    contents_at_each_delete = []
+    real_rmtree = shutil.rmtree
+
+    def recording_rmtree(path, *args, **kwargs):
+        contents_at_each_delete.append(
+            sorted(p.name for p in target.iterdir()) if target.is_dir() else None
+        )
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(album.shutil, "rmtree", recording_rmtree)
+
+    export_album(
+        "A",
+        target,
+        in_album=1,
+        replace=True,
+        runner=_runner_that_writes(("new.jpg",)),
+        free_space=lambda p: HUGE,
+    )
+
+    assert (target / "new.jpg").exists()
+    assert contents_at_each_delete[-1] == ["new.jpg"]
