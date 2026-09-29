@@ -9,17 +9,13 @@ copy onto any web server.
 
 ![The map, with clustered thumbnail markers and the day strip along the bottom](docs/screenshot.png)
 
-The part that turned out to matter most is invisible: **a photo's day comes
-from where it was taken, not from the clock in its EXIF.** A phone that stays
-on its home time while you travel west stamps an evening photo with tomorrow's
-date, and grouping on that stamp scatters an evening across two days. See
-[How days are decided](#how-days-are-decided).
-
 ## Requirements
 
-Python 3.13 or newer. Filling a folder from Photos.app additionally needs
-macOS, [osxphotos](https://github.com/RhetTbull/osxphotos) and `exiftool`;
-everything else runs anywhere.
+Python 3.13 or newer.
+
+Filling a folder from Photos.app is macOS-only and needs
+[osxphotos](https://github.com/RhetTbull/osxphotos) and `exiftool`
+(`brew install exiftool`).
 
 ## Install
 
@@ -28,7 +24,7 @@ git clone https://github.com/lackas/fototrip
 cd fototrip
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e .              # add ".[album]" for the Photos.app export
 ```
 
 ## Use
@@ -40,15 +36,18 @@ fototrip serve site
 
 `build` flags: `-o/--out` (default `site`), `--title` and `--subtitle`
 (override `trip.toml` and the folder name), `--thumb-px` (default 96, the
-square marker/cluster thumbnail), `--web-px` (default 1600, the long-edge
-cap on the lightbox image), `--no-geocode` and `--places-cache` (see "Place
-names" below). `serve` takes `-p/--port` (default 8000).
+square marker thumbnail), `--web-px` (default 1600, the long-edge cap on the
+lightbox image), `--no-geocode` and `--places-cache`. `serve` takes
+`-p/--port` (default 8000).
 
-The output in `site/` is fully static: copy it anywhere that serves files. It
-needs no API key and fetches nothing from a CDN at runtime. The one exception
-is `.fototrip-cache.json` (see below) — it is build metadata for `fototrip`
-itself, not something the site needs, so it does not need to be uploaded
-alongside the rest of `site/`.
+Copy `site/` anywhere that serves files. `site/.fototrip-cache.json` is build
+metadata and does not need to go with it.
+
+Builds are incremental, so re-running after adding photos only processes what
+changed. Changing `--thumb-px` or `--web-px` rebuilds every derivative.
+
+A photo's day comes from its coordinates rather than from its EXIF UTC offset,
+so a camera left on the wrong timezone still lands on the right day.
 
 Optional `trip.toml` in the photo folder, overridden by the CLI flags:
 
@@ -59,124 +58,69 @@ tile_url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
 tile_attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 ```
 
-`tile_url` and `tile_attribution` override the default OpenStreetMap tiles —
-for example to point at a different provider. Both default to OpenStreetMap
-if omitted.
-
-A build is incremental: it caches derivatives by each source file's path
-(relative to the trip folder), size and mtime, plus the `--thumb-px`/
-`--web-px` in effect, in `<out>/.fototrip-cache.json`, so re-running after
-adding a few photos only processes what changed. `--thumb-px` and `--web-px`
-are one shared part of every entry's signature, so changing either one
-invalidates every entry and rebuilds both derivatives for every photo, not
-just the size that changed — a deliberately simple, if coarser, rule. The
-key is relative to the trip folder rather than absolute, so the cache
-file — which lives inside the folder the rest of this README tells you to
-publish — never carries your home directory or folder layout.
-
-## How days are decided
-
-Photo timestamps are read together with their coordinates: the timezone comes
-from the location, not from the camera's EXIF offset. A phone that stays on
-its home clock while you travel west stamps an evening photo with the home
-offset and a time after midnight. Grouping on the raw stamp would file it under
-the wrong day.
-
-This is not theoretical. On the real trip this was built for -- a European
-phone kept on `+02:00` through a few weeks four to five hours behind -- 90 of
-around 900 photos resolved to a different local day than a naive read of the
-raw stamp gives, every one of them stamped between 00:00 and 05:00 on the
-camera's home clock and correctly rolled back to the previous evening. A photo
-carrying `DateTimeOriginal 2026:08:02 00:38:21` with `OffsetTimeOriginal
-+02:00`, taken at a longitude where local time is `-03:00`, resolves to
-`2026-08-01T19:38:21-03:00` and is filed under `2026-08-01`, not the
-`2026-08-02` a naive reading would suggest.
+`tile_url` and `tile_attribution` default to OpenStreetMap.
 
 ## Place names
 
-The lightbox shows each photo's capture date, its local capture time, and a
-readable place — "Cataratas del Iguazú, Puerto Iguazú, Argentinien" rather
-than a pair of coordinates.
+The lightbox shows each photo's date, local time and a readable place —
+"Cataratas del Iguazú, Puerto Iguazú, Argentinien" rather than coordinates.
 
-The names come from OpenStreetMap's Nominatim service, looked up **at build
-time only**: the published site still makes no third-party requests and needs
-no API key. Nominatim's usage policy allows one request per second, so the
-build spaces them out and caches every answer. Coordinates are rounded to
-about 110 m for the lookup, which on a real trip collapses ~950 photos into
-~130 requests: roughly two minutes the first time, and nothing at all
-afterwards.
+Names come from OpenStreetMap's Nominatim at build time, so the published site
+still makes no third-party requests. Lookups are rate-limited to one per
+second and cached in `~/.cache/fototrip/places.json`, outside the output
+folder, so `rm -rf site` does not throw them away. Move the cache with
+`--places-cache PATH`; it stores rounded coordinates only. Coordinates are
+rounded to about 110 m before lookup, which collapses a few hundred photos
+into a few dozen requests.
 
-The cache lives at `~/.cache/fototrip/places.json`, outside the output
-folder, so `rm -rf site` does not throw those lookups away. Move it with
-`--places-cache PATH`. It stores only the rounded coordinate, never a photo's
-exact position.
-
-Geocoding is best-effort and never fatal. Build without a network connection
-and you get a site without place names, reported as "without a name" in the
-build summary; the next build with a connection fills them in. Turn it off
-entirely with `--no-geocode`.
+Without a network you get a site without place names and the next build fills
+them in. `--no-geocode` turns it off.
 
 ## Filling the folder from Photos.app
 
-`export-album` fills a trip folder straight from a Photos.app album, so a
-build no longer depends on someone having hand-exported the right photos:
+`export-album` fills a trip folder from a Photos.app album:
 
 ```bash
-pip install -e ".[album]"   # once; macOS only
-fototrip export-album "My Album" \
-    -o trip --expect 2500 --replace
+fototrip export-album "My Album" -o trip --expect 2500 --replace
 ```
 
-Photos are converted to JPEG and carry their capture time and — where the
-library knows it — their GPS coordinates, written into each file with
-`exiftool`. That last part matters for iCloud Shared Albums: Apple strips GPS
-from the file it hands out, but the library keeps the location, so exporting
-this way recovers coordinates a hand-export loses.
+Photos are converted to JPEG and carry their capture time and, where the
+library knows it, their GPS coordinates. This is what makes it worth doing for
+an iCloud Shared Album: Apple strips GPS from the file it hands out, but the
+library still has the location.
 
-The library is only ever read. One album photo becomes exactly one file:
-videos, live-photo motion files, the frames of a burst other than the keeper,
-the RAW half of a RAW+JPEG pair and the unedited original of an edited photo
-are all skipped, so nothing shows up twice on the map.
+One album photo becomes one file. Videos, live-photo motion files, burst
+frames other than the keeper, the RAW half of a RAW+JPEG pair and the unedited
+original of an edited photo are all skipped.
 
-`--replace` is required to write into a folder that is not empty, and the
-export is staged in `<folder>.incoming/` first: an export that fails, produces
-nothing, or writes fewer files than its own run report claimed leaves your
-existing folder exactly as it was, and says where the partial export is. The
-swap at the end is two renames rather than one atomic step, so a process killed
-between them leaves your photos in `<folder>.previous/` — nothing is ever
-deleted before the new folder is in place, and the next run refuses to start
-until you have looked at that folder and moved or removed it.
+The library is only ever read.
 
-`--expect N`, with the album's photo count, sharpens the free-space check and
-puts the album's size in the report, which then says how many photos the run
-never accounted for. Without it the export still refuses to start below an
-absolute free-space floor, and still refuses to replace anything when it
-produced no photos, or fewer than its own run report claimed — those checks do
-not depend on `--expect`.
+`--replace` is required to write into a folder that is not empty. The export
+is staged in `<folder>.incoming/` first, and an export that fails, produces
+nothing or writes fewer files than its run report claimed leaves your folder
+untouched. If the process is killed during the final swap, your photos are in
+`<folder>.previous/` and the next run refuses to start until you have dealt
+with it.
 
-Needs `exiftool` (`brew install exiftool`).
+`--expect N` sharpens the free-space check and adds the album's size to the
+report. Without it the export still refuses below a free-space floor, and
+still refuses to replace anything when it produced no photos or fewer than its
+run report claimed.
 
 ## Duplicates
 
 Re-adding pictures to a shared album creates fresh assets, so an export can
 hand out the same frame twice under different names. The build drops the extra
-copies and says so:
+copies and reports them:
 
 ```
 2 skipped:
       2  the same photo twice
 ```
 
-Two photos count as the same only when their resolved local capture time,
-their coordinates and their image content all agree — the content compared
-only for photos that already match on time and place, so a burst of different
-shots at one instant is kept. The larger file is the one published, since a
-shared-album copy is usually the smaller re-encode.
-
-The comparison is on the resolved local time, not the raw EXIF stamp, and that
-matters: a real shared album handed out two copies of one frame written
-`12:00:34 +00:00` and `09:00:34 -03:00` — the same instant in two notations.
-Compared on the raw stamp they look like two different photos.
+Two photos count as the same only when their local capture time, coordinates
+and image content all agree, so a burst of different shots at one instant is
+kept. The larger file is the one published.
 
 ## Known limits
 
@@ -191,14 +135,14 @@ Compared on the raw stamp they look like two different photos.
 ```bash
 pip install -e ".[dev]"
 playwright install chromium   # once, for the browser tests
-pytest            # everything
-pytest -k frontend  # test_frontend*.py: mostly Playwright, plus a couple of manifest-shape checks that launch no browser
+pytest
+pytest -k frontend            # the Playwright tests
 ruff format src tests
 ```
 
 `tools/vendor_assets.py` re-downloads the pinned frontend libraries into
-`src/fototrip/assets/vendor/` and refreshes `VENDOR.lock.json`. It is a one-time
-step; the vendored files are committed so builds need no network.
+`src/fototrip/assets/vendor/` and refreshes `VENDOR.lock.json`. The vendored
+files are committed, so builds need no network.
 
 ## License
 
