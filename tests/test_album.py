@@ -570,6 +570,39 @@ def test_a_short_export_is_refused_when_the_report_is_in_the_real_format(tmp_pat
     assert (target / "old.jpeg").read_bytes() == b"old"
 
 
+def test_a_short_export_names_the_files_that_were_not_counted(tmp_path):
+    """ "wrote fewer" alone sends someone looking through 2563 files for one.
+
+    After the extension fix, the realistic cause is a file the export produced
+    that `_image_files` does not recognise -- a format that came through
+    unconverted -- so the refusal names it.
+    """
+    target = tmp_path / "trip"
+
+    def runner_writing_an_unrecognised_format(command):
+        destination = Path(command[2])
+        assert destination.is_dir(), (
+            f"osxphotos requires DEST to exist before it runs: {destination}"
+        )
+        (destination / "a.jpg").write_bytes(JPEG_BYTES)
+        (destination / "b.tiff").write_bytes(b"not a jpg or png")
+        Path(command[command.index("--report") + 1]).write_text(
+            REAL_OSXPHOTOS_HEADER + REAL_EXPORTED_ROW * 2, encoding="utf-8"
+        )
+        return 0
+
+    with pytest.raises(ExportRefused) as excinfo:
+        export_album(
+            "A",
+            target,
+            in_album=2,
+            runner=runner_writing_an_unrecognised_format,
+            free_space=lambda p: HUGE,
+        )
+
+    assert "b.tiff" in excinfo.value.message
+
+
 def test_jpegs_under_a_heic_name_do_not_block_the_swap(tmp_path):
     """The real bug: a perfect export was refused because 46% of it was miscounted.
 

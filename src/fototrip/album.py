@@ -395,8 +395,12 @@ def export_album(
             "An osxphotos version with different report columns would do this."
         )
     if len(written) < report.exported:
+        counted = set(written)
+        uncounted = [p for p in sorted(incoming.rglob("*")) if p.is_file() and p not in counted]
+        examples = ", ".join(p.name for p in uncounted[:3]) or "none found"
         raise ExportRefused(
             f"The export reported {report.exported} photos but wrote fewer ({len(written)}). "
+            f"Files the export produced that are not usable photos, up to three: {examples}. "
             f"{destination} was not touched; the partial export is in {incoming}."
         )
 
