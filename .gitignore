@@ -30,3 +30,11 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Anything `fototrip export-album` stages, whatever the trip folder is called.
+# The rules above name one folder; these do not depend on its name.
+*.incoming/
+*.previous/
+
+# Export targets created at the repo root, e.g. `-o export-argentina`.
+/export*
