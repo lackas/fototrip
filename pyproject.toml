@@ -2,6 +2,10 @@
 name = "fototrip"
 version = "0.1.0"
 description = "Static website generator for geotagged trip photos"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Christian Lackas" }]
+keywords = ["photography", "gps", "exif", "openstreetmap", "static-site"]
 requires-python = ">=3.13"
 dependencies = ["Pillow>=11", "timezonefinder>=6.5", "Jinja2>=3.1", "click>=8.1"]
 
