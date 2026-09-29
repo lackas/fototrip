@@ -18,7 +18,7 @@ def test_export_album_reports_what_it_did(tmp_path, monkeypatch):
     monkeypatch.setattr("fototrip.cli.export_album", fake_export)
 
     result = CliRunner().invoke(
-        main, ["export-album", "2026-07 Argentina", "-o", str(tmp_path / "trip"), "--expect", "3"]
+        main, ["export-album", "2026-07 Trip", "-o", str(tmp_path / "trip"), "--expect", "3"]
     )
 
     assert result.exit_code == 0, result.output

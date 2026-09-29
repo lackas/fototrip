@@ -121,7 +121,7 @@ def site_url(make_jpeg, tmp_path):
     make_jpeg("IMG_3.jpeg", lat=IGUAZU[0], lon=IGUAZU[1], stamp="2026:07:19 11:00:02")
     make_jpeg("IMG_4.jpeg", lat=-25.60, lon=-54.50, stamp="2026:07:19 15:12:12")
     make_jpeg("IMG_5.jpeg", lat=BUENOS_AIRES[0], lon=BUENOS_AIRES[1], stamp="2026:07:31 15:02:29")
-    # Mirrors the real IMG_6842 case: a naive stamp just after midnight on the
+    # Mirrors a real case found on the trip: a naive stamp just after midnight on the
     # camera's German clock, at Iguazu coordinates, resolves to local evening
     # of the *previous* day. Pins the project's core property (day-from-
     # coordinates, not day-from-raw-stamp) through the full CLI build rather
@@ -180,7 +180,7 @@ def browser_context_args(browser_context_args):
     """Pin the browser's timezone.
 
     The lightbox caption must show each photo's LOCAL capture time, not the
-    viewer's. Pinning this to Berlin makes that testable: an Argentina photo
+    viewer's. Pinning this to Berlin makes that testable: a photo taken west
     taken at 20:30 local is 01:30 the next day here, so a caption rendered in
     the browser's zone would read visibly wrong.
     """

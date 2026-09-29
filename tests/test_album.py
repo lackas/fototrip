@@ -22,10 +22,10 @@ from tests.conftest import REAL_EXPORTED_ROW, REAL_OSXPHOTOS_HEADER, _real_row
 
 
 def test_report_names_the_album_and_the_counts():
-    report = ExportReport(album="2026-07 Argentina", in_album=2563, exported=2551)
+    report = ExportReport(album="2026-07 Trip", in_album=2500, exported=2488)
     rendered = report.render()
-    assert '2563 photos in album "2026-07 Argentina"' in rendered
-    assert "2551 exported" in rendered
+    assert '2500 photos in album "2026-07 Trip"' in rendered
+    assert "2488 exported" in rendered
 
 
 def test_the_report_says_how_many_photos_the_run_never_mentioned():
@@ -150,7 +150,7 @@ def test_human_bytes_above_terabyte():
     assert _human_bytes(5_500_000_000_000) == "5.5 TB"
 
 
-def _command(album="2026-07 Argentina", **kwargs):
+def _command(album="2026-07 Trip", **kwargs):
     return build_command(album, Path("/tmp/out.incoming"), Path("/tmp/report.csv"), **kwargs)
 
 
@@ -159,7 +159,7 @@ def test_command_exports_the_named_album_to_the_destination():
     assert command[0] == "osxphotos"
     assert command[1] == "export"
     assert "/tmp/out.incoming" in command
-    assert command[command.index("--album") + 1] == "2026-07 Argentina"
+    assert command[command.index("--album") + 1] == "2026-07 Trip"
 
 
 def test_command_converts_to_jpeg_and_writes_metadata():
@@ -357,7 +357,7 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 def test_a_jpeg_wearing_a_heic_name_is_renamed(tmp_path):
     """An iCloud Shared Album hands out JPEG bytes under the original HEIC name.
 
-    1170 of one real album's 2563 photos, so --convert-to-jpeg had nothing to
+    46% of one real album's photos, so --convert-to-jpeg had nothing to
     convert and kept the name.
     """
     (tmp_path / "IMG_1.HEIC").write_bytes(JPEG_BYTES)
@@ -570,7 +570,7 @@ def test_a_short_export_is_refused_when_the_report_is_in_the_real_format(tmp_pat
 
 
 def test_a_short_export_names_the_files_that_were_not_counted(tmp_path):
-    """ "wrote fewer" alone sends someone looking through 2563 files for one.
+    """ "wrote fewer" alone sends someone looking through thousands of files for one.
 
     After the extension fix, the realistic cause is a file the export produced
     that `_image_files` does not recognise -- a format that came through
@@ -682,7 +682,7 @@ def test_too_little_free_space_is_refused_before_exporting(tmp_path):
         export_album(
             "A",
             target,
-            in_album=2563,
+            in_album=2500,
             runner=lambda command: ran.append(command) or 0,
             free_space=lambda p: 1_000_000,
         )
@@ -690,7 +690,7 @@ def test_too_little_free_space_is_refused_before_exporting(tmp_path):
     assert ran == []
     assert "space" in excinfo.value.message.lower()
     # The album size is the figure the estimate came from, so it is named.
-    assert "needed for 2563 photos" in excinfo.value.message
+    assert "needed for 2500 photos" in excinfo.value.message
     assert not (tmp_path / "trip.incoming").exists()
 
 
@@ -872,7 +872,7 @@ def test_a_run_whose_report_cannot_be_read_does_not_replace_anything(tmp_path):
         export_album(
             "A",
             target,
-            in_album=2563,
+            in_album=2500,
             replace=True,
             runner=runner_that_writes_no_report,
             free_space=lambda p: HUGE,
