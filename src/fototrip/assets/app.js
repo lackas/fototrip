@@ -22,6 +22,12 @@ L.tileLayer(window.FOTOTRIP_TILES.url, {
   subdomains: "abc",
 }).addTo(map);
 
+/* Photo id -> its marker, rebuilt alongside the cluster group below.
+ * Closing the lightbox needs the marker itself, not just the coordinates:
+ * whether the photo is hidden inside a cluster is what decides whether the
+ * zoom has to change. */
+const markers = new Map();
+
 /* A single cluster group, rebuilt whenever the visible set changes. */
 const clusterGroup = L.markerClusterGroup({
   maxClusterRadius: 55,
@@ -90,6 +96,7 @@ function markerFor(photo, index) {
     }),
   });
   marker.on("click", () => openLightboxAt(index));
+  markers.set(photo.id, marker);
   return marker;
 }
 
@@ -119,6 +126,7 @@ function fitTo(photos) {
 function setVisible(photos) {
   state.visible = photos;
   clusterGroup.clearLayers();
+  markers.clear();
   clusterGroup.addLayers(photos.map(markerFor));
   fitTo(photos);
   const status = document.getElementById("status");
@@ -165,6 +173,33 @@ lightbox.on("uiRegister", () => {
       fill();
     },
   });
+});
+
+/* Zoom to settle at when a photo has to be dug out of a cluster. Same cap
+ * fitTo uses, so the map lands at one familiar scale whenever it decides for
+ * you rather than at whatever depth the cluster happened to break up. */
+const PHOTO_ZOOM = 16;
+
+/* Closing the lightbox puts you back on the map where that photo was taken --
+ * the one you were looking at when you closed, not the one you opened, so
+ * paging through with next/prev and then leaving lands you where you ended up.
+ *
+ * The zoom you were working in is kept wherever it can be. It is only raised
+ * when the photo's marker is hidden inside a cluster at the current zoom,
+ * because centring on a cluster badge of four hundred tells you nothing about
+ * where the photo was -- which is the entire question this is answering.
+ */
+function revealOnMap(photo) {
+  if (!photo) return;
+  const target = [photo.lat, photo.lon];
+  const marker = markers.get(photo.id);
+  const hiddenInCluster = !!marker && clusterGroup.getVisibleParent(marker) !== marker;
+  if (hiddenInCluster && map.getZoom() < PHOTO_ZOOM) map.setView(target, PHOTO_ZOOM);
+  else map.panTo(target);
+}
+
+lightbox.on("close", () => {
+  revealOnMap(state.visible[lightbox.pswp.currIndex]);
 });
 
 function openLightboxAt(index) {
@@ -292,8 +327,8 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.fototrip = {
-  state, map, clusterGroup, lightbox,
-  setVisible, openLightboxAt, fitTo, selectDay, stepDay, renderTimeline,
+  state, map, clusterGroup, lightbox, markers,
+  setVisible, openLightboxAt, fitTo, selectDay, stepDay, renderTimeline, revealOnMap,
 };
 
 boot();

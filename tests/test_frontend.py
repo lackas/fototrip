@@ -225,3 +225,103 @@ def test_a_photo_without_a_place_shows_only_the_time(page, site_url):
 
     assert page.locator(".pswp__custom-caption .caption-when").inner_text() != ""
     assert page.locator(".pswp__custom-caption .caption-where").count() == 0
+
+
+def _map_centre(page):
+    return page.evaluate(
+        "() => { const c = window.fototrip.map.getCenter(); return [c.lat, c.lng]; }"
+    )
+
+
+def _is_clustered(page, photo_id):
+    """True when this photo's marker is currently hidden inside a cluster."""
+    return page.evaluate(
+        """(id) => {
+          const marker = window.fototrip.markers.get(id);
+          return !!marker && window.fototrip.clusterGroup.getVisibleParent(marker) !== marker;
+        }""",
+        photo_id,
+    )
+
+
+def _open_lightbox(page, index):
+    """Open at `index` and wait until it is really open, not merely visible.
+
+    PhotoSwipe's opener refuses to close while it is still opening -- read
+    `close()` in vendor/photoswipe/photoswipe.esm.js: it returns silently when
+    `isOpening`, because "browsers aren't good at changing the direction of
+    the CSS transition". A test that closes too early gets a no-op and then
+    waits forever for a teardown that never starts. So wait on that exact
+    flag rather than on a timeout that happens to be long enough.
+    """
+    page.evaluate("(i) => window.fototrip.openLightboxAt(i)", index)
+    page.wait_for_selector(".pswp", state="visible")
+    page.wait_for_function(
+        "() => { const p = window.fototrip.lightbox.pswp; return !!p && p.opener.isOpen; }"
+    )
+
+
+def _close_lightbox(page):
+    page.evaluate("() => window.fototrip.lightbox.pswp.close()")
+    page.wait_for_function("() => !window.fototrip.lightbox.pswp")
+
+
+def test_closing_the_lightbox_lands_on_the_photo_you_were_looking_at(page, site_url):
+    """Walk away from the photo you opened, then close: the map follows.
+
+    Zoomed out over a trip spanning two continents the photo's marker is
+    inside a cluster, so centring alone would land you on a cluster badge and
+    tell you nothing. The zoom is raised to the same cap fitTo already uses.
+    """
+    url, _ = site_url
+    _ready(page, url)
+    assert page.evaluate("window.fototrip.map.getZoom()") < 10
+
+    _open_lightbox(page, 0)
+    page.evaluate("() => { const p = window.fototrip.lightbox.pswp; p.next(); p.next(); }")
+    page.wait_for_function("window.fototrip.lightbox.pswp.currIndex === 2")
+
+    photo = page.evaluate("() => window.fototrip.state.visible[2]")
+    assert _is_clustered(page, photo["id"]), "precondition: photo 2 should be in a cluster here"
+
+    _close_lightbox(page)
+    page.wait_for_function(
+        """(p) => {
+          const c = window.fototrip.map.getCenter();
+          return Math.abs(c.lat - p.lat) < 1e-4 && Math.abs(c.lng - p.lon) < 1e-4;
+        }""",
+        arg=photo,
+    )
+    assert page.evaluate("window.fototrip.map.getZoom()") == 16
+
+
+def test_closing_the_lightbox_leaves_the_zoom_alone_when_the_photo_stands_alone(page, site_url):
+    """The zoom you were working in survives, which is the whole point.
+
+    This is the half that can break silently: raising the zoom unconditionally
+    would still pass the test above, and you would only notice by being thrown
+    out of your own view on every single photo you close.
+    """
+    url, _ = site_url
+    _ready(page, url)
+
+    index = page.evaluate("() => window.fototrip.state.visible.findIndex((p) => p.lat < -30)")
+    assert index >= 0, "the fixture trip should hold one Buenos Aires photo"
+    photo = page.evaluate("(i) => window.fototrip.state.visible[i]", index)
+
+    # Deliberately NOT centred on the photo: about a kilometre off, so that
+    # "the map stayed put" and "the map moved to the photo and kept the zoom"
+    # are distinguishable. Centred exactly, this test would pass with the
+    # feature removed entirely.
+    page.evaluate(
+        "(p) => window.fototrip.map.setView([p.lat + 0.01, p.lon + 0.01], 15, { animate: false })",
+        photo,
+    )
+    assert not _is_clustered(page, photo["id"]), "precondition: it stands alone at this zoom"
+
+    _open_lightbox(page, index)
+    _close_lightbox(page)
+
+    assert page.evaluate("window.fototrip.map.getZoom()") == 15
+    centre = _map_centre(page)
+    assert abs(centre[0] - photo["lat"]) < 1e-4 and abs(centre[1] - photo["lon"]) < 1e-4
