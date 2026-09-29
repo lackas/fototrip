@@ -19,6 +19,7 @@ from fototrip.album import (
     run_osxphotos,
 )
 from fototrip.cache import BuildCache
+from fototrip.dedupe import drop_duplicates
 from fototrip.images import THUMB_DIR, WEB_DIR, Derivatives, build_derivatives
 from fototrip.localtime import Localizer
 from fototrip.manifest import assign_ids, build_manifest
@@ -158,6 +159,12 @@ def build(folder, out_dir, title, subtitle, thumb_px, web_px, geocode, places_ca
     if not photos:
         click.echo(report.render())
         raise click.ClickException(f"no photos with usable GPS and timestamps in {folder}")
+
+    # Before geocoding, so a duplicate never costs a Nominatim lookup, and
+    # before assign_ids, so dropping one cannot change another photo's id.
+    photos, duplicates = drop_duplicates(photos)
+    if duplicates:
+        report.skipped[SkipReason.DUPLICATE] += duplicates
 
     if geocode:
         photos = _resolve_places(photos, places_cache or DEFAULT_PLACES_CACHE, report)

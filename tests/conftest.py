@@ -74,6 +74,8 @@ def make_jpeg(tmp_path):
         stamp="2026:07:17 19:37:59",
         offset="+02:00",
         size=(40, 60),
+        colour="red",
+        colour2=None,
         camera="iPhone 14 Pro",
         orientation=1,
         subdir=None,
@@ -98,7 +100,14 @@ def make_jpeg(tmp_path):
             }
         target = tmp_path / subdir / name if subdir else tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", size, "red").save(target, exif=exif)
+        image = Image.new("RGB", size, colour)
+        if colour2 is not None:
+            # Give the image structure. A solid colour field is not a
+            # photograph, and a perceptual hash cannot tell two of them apart:
+            # every pixel equals the mean, so the hash is all zeroes whatever
+            # the colour. Tests about telling pictures apart need real content.
+            image.paste(Image.new("RGB", (size[0] // 2, size[1]), colour2), (0, 0))
+        image.save(target, exif=exif)
         return target
 
     return _make
