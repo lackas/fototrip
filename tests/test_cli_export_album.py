@@ -6,14 +6,7 @@ from click.testing import CliRunner
 from fototrip import album
 from fototrip.album import ExportRefused, ExportReport
 from fototrip.cli import main
-
-# The shape osxphotos 0.77.2 really writes, abbreviated to the columns the parser
-# reads. tests/test_album.py holds the verbatim original and how to regenerate it.
-REAL_HEADER = (
-    "datetime,filename,exported,new,updated,skipped,exif_updated,touched,"
-    "converted_to_jpeg,missing,error\n"
-)
-REAL_ROW = "2026-09-28T22:11:03.120954,/x/a.jpeg,1,0,0,0,0,0,1,0,\n"
+from tests.conftest import REAL_EXPORTED_ROW, REAL_OSXPHOTOS_HEADER
 
 
 def test_export_album_reports_what_it_did(tmp_path, monkeypatch):
@@ -168,7 +161,7 @@ def test_the_command_really_fills_the_folder(tmp_path, monkeypatch):
         for name in ("IMG_1.jpg", "IMG_2.jpg"):
             (destination / name).write_bytes(b"jpegdata")
         Path(command[command.index("--report") + 1]).write_text(
-            REAL_HEADER + REAL_ROW * 2, encoding="utf-8"
+            REAL_OSXPHOTOS_HEADER + REAL_EXPORTED_ROW * 2, encoding="utf-8"
         )
         return 0
 

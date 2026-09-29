@@ -18,6 +18,7 @@ from fototrip.album import (
     require_tools,
     run_osxphotos,
 )
+from tests.conftest import REAL_EXPORTED_ROW, REAL_OSXPHOTOS_HEADER, _real_row
 
 
 def test_report_names_the_album_and_the_counts():
@@ -84,6 +85,16 @@ def test_report_omits_size_line_when_bytes_written_is_zero():
     """Size line is only added when bytes_written is nonzero."""
     rendered = ExportReport(album="A", in_album=1, exported=1, bytes_written=0).render()
     assert "written" not in rendered
+
+
+def test_report_names_a_metadata_failure_when_the_count_is_nonzero():
+    rendered = ExportReport(album="A", in_album=2, exported=2, metadata_failed=1).render()
+    assert "1 exported but exiftool could not write their metadata" in rendered
+
+
+def test_report_stays_quiet_about_metadata_when_nothing_failed():
+    rendered = ExportReport(album="A", in_album=1, exported=1).render()
+    assert "exiftool could not write" not in rendered
 
 
 # Human bytes boundary tests pinning unit promotion
@@ -247,6 +258,31 @@ def test_a_row_that_neither_exported_nor_errored_is_counted_as_failed(tmp_path):
     assert report.failed["export failed"] == 1
 
 
+def test_an_exported_row_whose_metadata_write_failed_is_still_counted_as_exported(tmp_path):
+    """exiftool is what writes the library's GPS into the file.
+
+    A photo osxphotos wrote but could not stamp has exported=1 and a non-empty
+    exiftool_error. It still counts as exported -- the file did export -- but
+    metadata_failed must say so, because such a file reaches the trip folder
+    without coordinates and `build` then skips it as "no GPS coordinates",
+    indistinguishable from a photo whose location was never known.
+    """
+    path = _write_report(
+        tmp_path, [_real_row(exiftool_error="exiftool: 'No such file or directory'")]
+    )
+    report = ExportReport(album="A")
+    read_osxphotos_report(path, report)
+    assert report.exported == 1
+    assert report.metadata_failed == 1
+
+
+def test_a_clean_row_does_not_count_as_a_metadata_failure(tmp_path):
+    path = _write_report(tmp_path, [_real_row()])
+    report = ExportReport(album="A")
+    read_osxphotos_report(path, report)
+    assert report.metadata_failed == 0
+
+
 def test_the_boolean_spelling_is_accepted_too():
     """osxphotos' JSON writer passes bool_values=True and emits True/False.
 
@@ -279,43 +315,6 @@ def test_an_unexpected_column_layout_does_not_raise(tmp_path):
     read_osxphotos_report(path, report)
     assert report.exported == 0
     assert report.failed == Counter()
-
-
-# A report produced by osxphotos 0.77.2 itself, pasted verbatim. Regenerate with:
-#   from osxphotos.cli.report_writer import ExportReportWriterCSV
-#   from osxphotos.photoexporter import ExportResults
-#   r = ExportResults(); r.exported = ["/x/a.jpeg"]; r.converted_to_jpeg = ["/x/a.jpeg"]
-#   w = ExportReportWriterCSV(path); w.write(r); w.close()
-# The values are 1/0, NOT True/False: only osxphotos' JSON writer passes
-# bool_values=True. A parser written against the wrong one counts every
-# successful export as a failure and silently disables the truncation gate.
-REAL_OSXPHOTOS_HEADER = (
-    "datetime,filename,exported,new,updated,skipped,exif_updated,touched,"
-    "converted_to_jpeg,sidecar_xmp,sidecar_json,sidecar_exiftool,missing,error,"
-    "exiftool_warning,exiftool_error,extended_attributes_written,"
-    "extended_attributes_skipped,cleanup_deleted_file,cleanup_deleted_directory,"
-    "exported_album,sidecar_user,sidecar_user_error,user_written,user_skipped,"
-    "user_error,aae_written,aae_skipped\n"
-)
-REAL_EXPORTED_ROW = (
-    "2026-09-28T22:11:03.120954,/x/a.jpeg,1,0,0,0,0,0,1,0,0,0,0,,,,0,0,0,0,,0,,0,0,,0,0\n"
-)
-
-
-def _real_row(exported=True, error=""):
-    """One row in the format osxphotos actually writes.
-
-    Column order and count come from REAL_OSXPHOTOS_HEADER; only `exported` and
-    `error` are ever read, but the row has to be the real width so a parser that
-    depends on position rather than on the header cannot pass.
-    """
-    columns = REAL_OSXPHOTOS_HEADER.rstrip("\n").split(",")
-    row = ["0"] * len(columns)
-    row[columns.index("datetime")] = "2026-09-28T22:11:03.120954"
-    row[columns.index("filename")] = "/x/a.jpeg"
-    row[columns.index("exported")] = "1" if exported else "0"
-    row[columns.index("error")] = error
-    return ",".join(row) + "\n"
 
 
 def test_a_report_in_the_format_osxphotos_actually_writes_is_counted(tmp_path):
@@ -586,6 +585,11 @@ def test_a_short_export_names_the_files_that_were_not_counted(tmp_path):
         )
         (destination / "a.jpg").write_bytes(JPEG_BYTES)
         (destination / "b.tiff").write_bytes(b"not a jpg or png")
+        # osxphotos' own bookkeeping and Finder's own droppings. "." sorts before
+        # letters, so a bare sorted rglob() lets these two crowd b.tiff -- the
+        # actual culprit -- out of the three example slots.
+        (destination / ".osxphotos_export.db").write_bytes(b"sqlite")
+        (destination / ".DS_Store").write_bytes(b"finder")
         Path(command[command.index("--report") + 1]).write_text(
             REAL_OSXPHOTOS_HEADER + REAL_EXPORTED_ROW * 2, encoding="utf-8"
         )
@@ -601,6 +605,8 @@ def test_a_short_export_names_the_files_that_were_not_counted(tmp_path):
         )
 
     assert "b.tiff" in excinfo.value.message
+    assert ".osxphotos_export.db" not in excinfo.value.message
+    assert ".DS_Store" not in excinfo.value.message
 
 
 def test_jpegs_under_a_heic_name_do_not_block_the_swap(tmp_path):

@@ -263,7 +263,7 @@ def serve(folder, port) -> None:
     "in_album",
     type=int,
     default=0,
-    help="How many photos the album holds. Enables the free-space check and "
+    help="How many photos the album holds. Sharpens the free-space check and "
     "names the album's size in the report.",
 )
 @click.option("--jpeg-quality", type=click.FloatRange(0, 1), default=0.9, show_default=True)

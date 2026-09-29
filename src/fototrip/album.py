@@ -69,6 +69,7 @@ class ExportReport:
     album: str
     in_album: int = 0
     exported: int = 0
+    metadata_failed: int = 0
     bytes_written: int = 0
     failed: Counter[str] = field(default_factory=Counter)
 
@@ -77,6 +78,11 @@ class ExportReport:
         if self.in_album:
             lines.append(f'{self.in_album} photos in album "{self.album}"')
         lines.append(f"{self.exported} exported")
+        if self.metadata_failed:
+            lines.append(
+                f"{self.metadata_failed} exported but exiftool could not write their metadata "
+                "-- those may reach the folder without coordinates"
+            )
         if self.failed:
             lines.append(f"{sum(self.failed.values())} skipped:")
             for reason, count in self.failed.most_common():
@@ -169,6 +175,8 @@ def read_osxphotos_report(path: Path, report: ExportReport) -> None:
         error = (row.get("error") or "").strip()
         if _is_true(row.get("exported")):
             report.exported += 1
+            if (row.get("exiftool_error") or "").strip():
+                report.metadata_failed += 1
         elif error:
             report.failed[error] += 1
         else:
@@ -238,13 +246,15 @@ def _normalise_extensions(folder: Path) -> int:
 
 
 def _image_files(folder: Path) -> list[Path]:
-    """Every file `find_photos` would pick up, and nothing else.
+    """The same suffixes `find_photos` accepts, minus the HEIC family.
 
-    The exclusions repeat `scan.find_photos` deliberately -- hidden files,
-    AppleDouble sidecars and dot-directories carry image extensions but no image
-    data. This module imports nothing from the package, so the rule is stated
-    twice; it must agree with `src/fototrip/scan.py`, because counting a file the
-    build will not include biases the swap gate toward accepting.
+    `scan.PHOTO_SUFFIXES` includes `.heic`/`.heif`; IMAGE_SUFFIXES deliberately
+    does not, so an unconverted HEIC is never counted here and cannot pass the
+    swap gate. The hidden-file, AppleDouble-sidecar and dot-directory exclusions
+    repeat `scan.find_photos` deliberately: this module imports nothing from the
+    package, so the rule is stated twice and must agree with
+    `src/fototrip/scan.py`, because counting a file the build will not include
+    biases the swap gate toward accepting.
     """
     found = []
     for path in folder.rglob("*"):
@@ -396,8 +406,12 @@ def export_album(
         )
     if len(written) < report.exported:
         counted = set(written)
-        uncounted = [p for p in sorted(incoming.rglob("*")) if p.is_file() and p not in counted]
-        examples = ", ".join(p.name for p in uncounted[:3]) or "none found"
+        uncounted = [
+            p
+            for p in sorted(incoming.rglob("*"))
+            if p.is_file() and p not in counted and not p.name.startswith(".")
+        ]
+        examples = ", ".join(p.name for p in uncounted[:3]) or "none that are not hidden files"
         raise ExportRefused(
             f"The export reported {report.exported} photos but wrote fewer ({len(written)}). "
             f"Files the export produced that are not usable photos, up to three: {examples}. "
