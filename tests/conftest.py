@@ -17,6 +17,45 @@ IGUAZU = (-25.6858, -54.4435)
 BUENOS_AIRES = (-34.6037, -58.3816)
 
 
+# A report produced by osxphotos 0.77.2 itself, pasted verbatim. Regenerate with:
+#   from osxphotos.cli.report_writer import ExportReportWriterCSV
+#   from osxphotos.photoexporter import ExportResults
+#   r = ExportResults(); r.exported = ["/x/a.jpeg"]; r.converted_to_jpeg = ["/x/a.jpeg"]
+#   w = ExportReportWriterCSV(path); w.write(r); w.close()
+# The values are 1/0, NOT True/False: only osxphotos' JSON writer passes
+# bool_values=True. A parser written against the wrong one counts every
+# successful export as a failure and silently disables the truncation gate.
+REAL_OSXPHOTOS_HEADER = (
+    "datetime,filename,exported,new,updated,skipped,exif_updated,touched,"
+    "converted_to_jpeg,sidecar_xmp,sidecar_json,sidecar_exiftool,missing,error,"
+    "exiftool_warning,exiftool_error,extended_attributes_written,"
+    "extended_attributes_skipped,cleanup_deleted_file,cleanup_deleted_directory,"
+    "exported_album,sidecar_user,sidecar_user_error,user_written,user_skipped,"
+    "user_error,aae_written,aae_skipped\n"
+)
+REAL_EXPORTED_ROW = (
+    "2026-09-28T22:11:03.120954,/x/a.jpeg,1,0,0,0,0,0,1,0,0,0,0,,,,0,0,0,0,,0,,0,0,,0,0\n"
+)
+
+
+def _real_row(exported=True, error="", exiftool_error=""):
+    """One row in the format osxphotos actually writes.
+
+    Column order and count come from REAL_OSXPHOTOS_HEADER; only `exported`,
+    `error` and `exiftool_error` are ever read, but the row has to be the real
+    width so a parser that depends on position rather than on the header cannot
+    pass.
+    """
+    columns = REAL_OSXPHOTOS_HEADER.rstrip("\n").split(",")
+    row = ["0"] * len(columns)
+    row[columns.index("datetime")] = "2026-09-28T22:11:03.120954"
+    row[columns.index("filename")] = "/x/a.jpeg"
+    row[columns.index("exported")] = "1" if exported else "0"
+    row[columns.index("error")] = error
+    row[columns.index("exiftool_error")] = exiftool_error
+    return ",".join(row) + "\n"
+
+
 def _dms(value: float) -> tuple[IFDRational, IFDRational, IFDRational]:
     value = abs(value)
     degrees = int(value)

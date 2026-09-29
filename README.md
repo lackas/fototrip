@@ -54,6 +54,46 @@ key is relative to the trip folder rather than absolute, so the cache
 file — which lives inside the folder the rest of this README tells you to
 publish — never carries your home directory or folder layout.
 
+## Filling the folder from Photos.app
+
+`export-album` fills a trip folder straight from a Photos.app album, so a
+build no longer depends on someone having hand-exported the right photos:
+
+```bash
+~/src/venv/fototrip/bin/pip install -e ".[album]"   # once; macOS only
+~/src/venv/fototrip/bin/fototrip export-album "2026-07 Argentina" \
+    -o "2026-07 Argentina" --expect 2563 --replace
+```
+
+Photos are converted to JPEG and carry their capture time and — where the
+library knows it — their GPS coordinates, written into each file with
+`exiftool`. That last part matters for iCloud Shared Albums: Apple strips GPS
+from the file it hands out, but the library keeps the location, so exporting
+this way recovers coordinates a hand-export loses.
+
+The library is only ever read. One album photo becomes exactly one file:
+videos, live-photo motion files, the frames of a burst other than the keeper,
+the RAW half of a RAW+JPEG pair and the unedited original of an edited photo
+are all skipped, so nothing shows up twice on the map.
+
+`--replace` is required to write into a folder that is not empty, and the
+export is staged in `<folder>.incoming/` first: an export that fails, produces
+nothing, or writes fewer files than its own run report claimed leaves your
+existing folder exactly as it was, and says where the partial export is. The
+swap at the end is two renames rather than one atomic step, so a process killed
+between them leaves your photos in `<folder>.previous/` — nothing is ever
+deleted before the new folder is in place, and the next run refuses to start
+until you have looked at that folder and moved or removed it.
+
+`--expect N`, with the album's photo count, sharpens the free-space check and
+puts the album's size in the report, which then says how many photos the run
+never accounted for. Without it the export still refuses to start below an
+absolute free-space floor, and still refuses to replace anything when it
+produced no photos, or fewer than its own run report claimed — those checks do
+not depend on `--expect`.
+
+Needs `exiftool` (`brew install exiftool`).
+
 ## Place names
 
 The lightbox shows each photo's capture date, its local capture time, and a

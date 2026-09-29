@@ -11,6 +11,13 @@ from pathlib import Path
 import click
 from PIL import Image
 
+from fototrip.album import (
+    ExportRefused,
+    _default_osxphotos,
+    export_album,
+    require_tools,
+    run_osxphotos,
+)
 from fototrip.cache import BuildCache
 from fototrip.images import THUMB_DIR, WEB_DIR, Derivatives, build_derivatives
 from fototrip.localtime import Localizer
@@ -233,3 +240,60 @@ def serve(folder, port) -> None:
     with socketserver.TCPServer(("127.0.0.1", port), handler) as httpd:
         click.echo(f"serving {folder} at http://127.0.0.1:{port}/  (ctrl-c to stop)")
         httpd.serve_forever()
+
+
+@main.command("export-album")
+@click.argument("album")
+@click.option(
+    "-o",
+    "--out",
+    "destination",
+    type=click.Path(file_okay=False, path_type=Path),
+    required=True,
+    help="Trip folder to fill.",
+)
+@click.option(
+    "--replace",
+    is_flag=True,
+    default=False,
+    help="Empty the folder first. Without this, a non-empty folder is refused.",
+)
+@click.option(
+    "--expect",
+    "in_album",
+    type=int,
+    default=0,
+    help="How many photos the album holds. Sharpens the free-space check and "
+    "names the album's size in the report.",
+)
+@click.option("--jpeg-quality", type=click.FloatRange(0, 1), default=0.9, show_default=True)
+@click.option(
+    "--osxphotos",
+    default=_default_osxphotos(),
+    show_default=True,
+    help="Path to osxphotos.",
+)
+def export_album_command(album, destination, replace, in_album, jpeg_quality, osxphotos) -> None:
+    """Fill a trip folder from the Photos.app album ALBUM."""
+    if not in_album:
+        click.echo(
+            "No --expect given, so the free-space check is off beyond an absolute "
+            "floor. Pass --expect with the album's photo count to enable it. The "
+            "export is still verified against the run report either way.\n"
+        )
+    try:
+        require_tools(osxphotos)
+        report = export_album(
+            album,
+            destination,
+            in_album=in_album,
+            replace=replace,
+            runner=run_osxphotos,
+            jpeg_quality=jpeg_quality,
+            osxphotos=osxphotos,
+        )
+    except ExportRefused as refused:
+        raise click.ClickException(refused.message) from refused
+
+    click.echo(report.render())
+    click.echo(f"\n{destination} is ready to build")

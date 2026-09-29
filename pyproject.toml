@@ -10,6 +10,7 @@ fototrip = "fototrip.cli:main"
 
 [project.optional-dependencies]
 heic = ["pillow-heif>=0.18"]
+album = ["osxphotos>=0.77"]
 dev = ["pytest", "pytest-playwright", "ruff"]
 
 [build-system]
