@@ -20,7 +20,8 @@ def test_the_after_midnight_iguazu_photo_files_under_the_earlier_local_day(site_
     stamp 2026-07-20T01:30:00+02:00 at Iguazu coordinates. A naive read of
     the raw stamp would file it under 2026-07-20; resolved from its
     coordinates it is 2026-07-19T20:30:00-03:00, one local day earlier --
-    exactly the real IMG_6842 case described in the README."""
+    exactly the after-midnight case the README's "How days are decided"
+    section describes."""
     _, out = site_url
     manifest = json.loads((out / "photos.json").read_text())
     entry = next(p for p in manifest["photos"] if p["id"] == "IMG_6")
