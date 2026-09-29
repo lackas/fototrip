@@ -130,13 +130,25 @@ def test_a_destination_that_is_a_file_is_refused_by_click(tmp_path):
     assert not_a_folder.read_bytes() == b"not a folder"
 
 
-def test_a_jpeg_quality_outside_the_range_is_refused_immediately(tmp_path):
-    """A typo must not cost forty seconds of exporting first."""
+def test_a_jpeg_quality_outside_the_range_is_refused_immediately(tmp_path, monkeypatch):
+    """Click refuses it during parsing, so nothing is exported.
+
+    require_tools is patched like every other test in this file: a test in this
+    suite must never be one relaxed guard away from invoking the real osxphotos
+    against the real Photos library.
+    """
+    monkeypatch.setattr("fototrip.cli.require_tools", lambda osxphotos="osxphotos": None)
+    ran = []
+    monkeypatch.setattr("fototrip.cli.run_osxphotos", lambda command: ran.append(command) or 0)
+
     result = CliRunner().invoke(
-        main, ["export-album", "A", "-o", str(tmp_path / "trip"), "--jpeg-quality", "95"]
+        main,
+        ["export-album", "A", "-o", str(tmp_path / "trip"), "--jpeg-quality", "95"],
     )
+
     assert result.exit_code != 0
-    assert "0" in result.output and "1" in result.output
+    assert "is not in the range" in result.output
+    assert ran == []
 
 
 def test_the_command_really_fills_the_folder(tmp_path, monkeypatch):

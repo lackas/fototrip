@@ -995,6 +995,7 @@ def test_a_staging_folder_that_is_a_symlink_is_refused(tmp_path):
         )
 
     assert "trip.incoming" in excinfo.value.message
+    assert "is a symlink" in excinfo.value.message
     assert (elsewhere / "not_ours.jpg").read_bytes() == b"keep"
 
 
