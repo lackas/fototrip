@@ -157,3 +157,24 @@ Buenos Aires coordinates; fototrip resolves that to local time
 `tools/vendor_assets.py` re-downloads the pinned frontend libraries into
 `src/fototrip/assets/vendor/` and refreshes `VENDOR.lock.json`. It is a one-time
 step; the vendored files are committed so builds need no network.
+
+## Duplicates
+
+Re-adding pictures to a shared album creates fresh assets, so an export can
+hand out the same frame twice under different names. The build drops the extra
+copies and says so:
+
+```
+2 skipped:
+      2  the same photo twice
+```
+
+Two photos count as the same only when their resolved local capture time,
+their coordinates and their image content all agree — the content compared
+only for photos that already match on time and place, so a burst of different
+shots at one instant is kept. The larger file is the one published, since a
+shared-album copy is usually the smaller re-encode.
+
+The comparison is on the resolved local time, not the raw EXIF stamp, and that
+matters: one real album handed out two copies of one frame written
+`12:00:34 +00:00` and `09:00:34 -03:00` — the same instant in two notations.

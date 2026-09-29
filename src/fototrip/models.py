@@ -10,6 +10,7 @@ class SkipReason(StrEnum):
     NO_GPS = "no GPS coordinates"
     NO_TIMESTAMP = "no capture timestamp"
     UNREADABLE = "unreadable or truncated image"
+    DUPLICATE = "the same photo twice"
 
 
 class SkipPhoto(Exception):
