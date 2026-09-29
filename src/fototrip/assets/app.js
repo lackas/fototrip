@@ -60,8 +60,8 @@ const clusterGroup = L.markerClusterGroup({
 
 /* Photos carry their own UTC offset, and the whole point of this project is
  * that the offset is not where the photo was taken: the phones stayed on
- * German time for an Argentina trip. `new Date(t).toLocaleString()` renders in
- * the VIEWER's timezone, so a photo taken at 20:30 at Iguazu would read 01:30
+ * their home time while travelling. `new Date(t).toLocaleString()` renders in
+ * the VIEWER's timezone, so a photo taken at 20:30 five hours west would read 01:30
  * the next day for someone in Cologne. The parts are therefore read straight
  * out of the ISO string; only the weekday and month names come from Intl, and
  * those are resolved against a UTC date built from those same parts so they

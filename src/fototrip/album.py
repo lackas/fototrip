@@ -19,7 +19,7 @@ from pathlib import Path
 # Rough per-photo estimate for the space precheck. The Photos library records
 # no byte count for shared-album assets, so this cannot be exact; it exists to
 # catch "this will obviously not fit", not to predict the final size. Measured
-# against a real album: 2563 photos, mostly ~2048px, came to about 2.7 GB.
+# against a real album: ~2500 photos, mostly ~2048px, came to about 2.7 GB.
 MEGABYTES_PER_PHOTO = 1.5
 
 #: The precheck demands this much more than the estimate before starting.
@@ -209,7 +209,7 @@ def _normalise_extensions(folder: Path) -> int:
     """Rename files whose bytes are JPEG but whose name says otherwise.
 
     An iCloud Shared Album hands out JPEG bytes under the original HEIC name --
-    1170 of one real album's 2563 photos -- so --convert-to-jpeg has nothing to
+    46% of one real album's photos -- so --convert-to-jpeg has nothing to
     convert and keeps the name. Left alone those files are not counted as images
     by the swap gate, and the trip folder would claim a format it does not hold.
 

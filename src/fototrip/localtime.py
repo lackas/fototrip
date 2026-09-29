@@ -1,6 +1,6 @@
 """Turn a photo's coordinates into the local day it was taken on.
 
-Every photo from the Argentina trip carries OffsetTimeOriginal +02:00 because the
+Every photo from the trip this was built for carries OffsetTimeOriginal +02:00 because the
 phones stayed on German time. Grouping on the raw stamp would put evening photos
 on the wrong day, so the day is derived from the coordinates instead.
 """

@@ -168,7 +168,7 @@ def test_adversarial_filenames_produce_safe_and_unique_ids():
     must still get distinct ids."""
     photos = assign_ids(
         [
-            _photo("Hannah's birthday.jpeg", "2026-07-17", 9),
+            _photo("someone's birthday.jpeg", "2026-07-17", 9),
             _photo('quote".jpeg', "2026-07-17", 10),
             _photo("hash#1.jpeg", "2026-07-17", 11),
             _photo("has space.jpeg", "2026-07-17", 12),

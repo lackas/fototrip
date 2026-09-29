@@ -14,7 +14,7 @@ python3 -m venv ~/src/venv/fototrip
 ## Use
 
 ```bash
-~/src/venv/fototrip/bin/fototrip build "2026-07 Argentina" -o site --title "Argentina 2026"
+~/src/venv/fototrip/bin/fototrip build trip -o site --title "My Trip"
 ~/src/venv/fototrip/bin/fototrip serve site
 ```
 
@@ -33,8 +33,8 @@ alongside the rest of `site/`.
 Optional `trip.toml` in the photo folder, overridden by the CLI flags:
 
 ```toml
-title = "Argentina 2026"
-subtitle = "Iguazu, Buenos Aires"
+title = "My Trip"
+subtitle = "where it went"
 tile_url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
 tile_attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 ```
@@ -61,8 +61,8 @@ build no longer depends on someone having hand-exported the right photos:
 
 ```bash
 ~/src/venv/fototrip/bin/pip install -e ".[album]"   # once; macOS only
-~/src/venv/fototrip/bin/fototrip export-album "2026-07 Argentina" \
-    -o "2026-07 Argentina" --expect 2563 --replace
+~/src/venv/fototrip/bin/fototrip export-album "My Album" \
+    -o trip --expect 2500 --replace
 ```
 
 Photos are converted to JPEG and carry their capture time and — where the
@@ -121,20 +121,20 @@ entirely with `--no-geocode`.
 ## How days are decided
 
 Photo timestamps are read together with their coordinates: the timezone comes
-from the location, not from the camera's EXIF offset. The phones on this trip
-stayed on German time, so an evening photo in Argentina carries a `+02:00`
-offset and a timestamp after midnight. Grouping on the raw stamp would file it
-under the wrong day.
+from the location, not from the camera's EXIF offset. A phone that stays on
+its home clock while you travel west stamps an evening photo with the home
+offset and a time after midnight. Grouping on the raw stamp would file it under
+the wrong day.
 
-This is not theoretical: building the real 2026-07 Argentina trip (935 photos
-included) turned up 90 photos whose resolved local day differs from what a
-naive read of the raw EXIF stamp would give, all of them stamped between
-00:00 and 05:00 on the camera's German clock and correctly rolled back to the
-previous evening in Argentina. For example `IMG_6842.jpeg` carries
-`DateTimeOriginal 2026:08:02 00:38:21` with `OffsetTimeOriginal +02:00` at
-Buenos Aires coordinates; fototrip resolves that to local time
-`2026-08-01T19:38:21-03:00` and files it under `2026-08-01`, not the
-`2026-08-02` a naive reading of the stamp would suggest.
+This is not theoretical. On the real trip this was built for -- a European
+phone kept on `+02:00` through a few weeks four to five hours behind -- 90 of
+around 900 photos resolved to a different local day than a naive read of the
+raw stamp gives, every one of them stamped between 00:00 and 05:00 on the
+camera's home clock and correctly rolled back to the previous evening. A photo
+carrying `DateTimeOriginal 2026:08:02 00:38:21` with `OffsetTimeOriginal
++02:00`, taken at a longitude where local time is `-03:00`, resolves to
+`2026-08-01T19:38:21-03:00` and is filed under `2026-08-01`, not the
+`2026-08-02` a naive reading would suggest.
 
 ## Known limits
 
@@ -176,5 +176,6 @@ shots at one instant is kept. The larger file is the one published, since a
 shared-album copy is usually the smaller re-encode.
 
 The comparison is on the resolved local time, not the raw EXIF stamp, and that
-matters: one real album handed out two copies of one frame written
+matters: a real shared album handed out two copies of one frame written
 `12:00:34 +00:00` and `09:00:34 -03:00` — the same instant in two notations.
+Compared on the raw stamp they look like two different photos.

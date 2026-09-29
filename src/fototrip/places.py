@@ -55,7 +55,7 @@ _SETTLEMENT_KEYS = (
     "state",
 )
 
-# OSM names carry stray runs of whitespace, e.g. "Bº  El Pilar" in Salta.
+# OSM names carry stray runs of whitespace, e.g. "Bº  El Pilar" as returned.
 _WHITESPACE = re.compile(r"\s+")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"

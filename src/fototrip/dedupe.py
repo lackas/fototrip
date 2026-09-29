@@ -2,13 +2,13 @@
 
 Re-adding pictures to an iCloud Shared Album creates fresh assets, so an
 export hands out the same frame under two names -- `IMG_1670.jpg` and
-`IMG_1670 (1).jpg`. One real album carried 95 such pairs among 2563 photos.
+`IMG_1670 (1).jpg`. One real album carried 95 such pairs among ~2500 photos.
 They are not a storage problem: each one becomes a second pin on the map at
 the same second and the same spot, which is precisely what this site exists to
 show you.
 
 Timestamp and position alone are not enough to call two photos the same. The
-same album held 34 pictures that share both and are genuinely different
+same album held 34 pictures that shared both and were genuinely different
 photographs -- a burst, or two people shooting at once. So the content decides,
 and only for photos that already agree on when and where, which keeps the cost
 to the handful of files that actually collide rather than the whole trip.

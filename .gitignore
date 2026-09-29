@@ -1,10 +1,14 @@
-# Trip photo folders — inputs live beside the code but are never committed.
-/2026-07 Argentina/
+# Trip photo folders live beside the code and are never committed. Name yours
+# in .git/info/exclude rather than here, so the repo carries no private folder
+# names; the patterns below cover whatever you call them.
+/trip/
+/photos/
 
 # What `fototrip export-album` stages beside the trip folder: a partial export
 # and a run report listing every filename and library UUID. Both survive a
 # refusal on purpose, as evidence, and neither belongs in the repo.
-/2026-07 Argentina.*
+*.incoming/
+*.previous/
 *.report.csv
 
 # Raw media, wherever it turns up. PNG/SVG/ICO stay allowed for site assets.
@@ -31,10 +35,5 @@ __pycache__/
 # macOS
 .DS_Store
 
-# Anything `fototrip export-album` stages, whatever the trip folder is called.
-# The rules above name one folder; these do not depend on its name.
-*.incoming/
-*.previous/
-
-# Export targets created at the repo root, e.g. `-o export-argentina`.
+# Export targets created at the repo root, e.g. `-o export-trip`.
 /export*
