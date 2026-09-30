@@ -81,7 +81,7 @@ fototrip.lackas.net {
 		# one request reaching OpenStreetMap.
 		#
 		# data: covers Leaflet's placeholder while tiles load.
-		Content-Security-Policy "default-src 'self'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://server.arcgisonline.com; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'"
 	}
 
 	# The four cache rules below are deliberately mutually exclusive, so that

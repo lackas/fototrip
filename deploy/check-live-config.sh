@@ -55,14 +55,16 @@ fi
 # what the server sends, and that is the distinction this whole script exists
 # for.
 echo "==> the tile host the build actually uses is allowed by the LIVE policy"
-manifest=$(relative_match "$SOURCE" '*/photos.json')
-if [ -z "$manifest" ]; then
-	note "no photos.json under $SOURCE, skipped"
-else
+# Every trip, not the first one found: a trip can set its own tile_url in
+# trip.toml, and the one that does is the one a single sample would miss.
+manifests=$(find "$SOURCE" -type f -name photos.json 2>/dev/null | sort)
+[ -n "$manifests" ] || note "no photos.json under $SOURCE, skipped"
+for manifest in $manifests; do
+	trip=$(basename "$(dirname "$manifest")")
 	host=$(python3 -c '
 import json, sys, urllib.parse
 url = json.load(open(sys.argv[1]))["tiles"]["url"]
-print(urllib.parse.urlsplit(url).netloc)' "$SOURCE/$manifest")
+print(urllib.parse.urlsplit(url).netloc)' "$manifest")
 	# A CSP host-source with a *. prefix requires at least one label in front
 	# of the rest, so it never matches the bare domain. That is the whole bug.
 	if python3 -c '
@@ -74,11 +76,11 @@ for s in sources:
     if s == host or (s.startswith("*.") and host.endswith(s[1:]) and host != s[2:]):
         sys.exit(0)
 sys.exit(1)' "$host" "${live_csp:-}"; then
-		note "$host is covered"
+		note "$trip: $host is covered"
 	else
-		bad "$host is the tile host in photos.json, but the live img-src does not allow it"
+		bad "$trip: $host is the tile host in photos.json, but the live img-src does not allow it"
 	fi
-fi
+done
 
 echo "==> Cache-Control per kind of file"
 # glob under SOURCE                     expected Cache-Control
