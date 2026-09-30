@@ -6,7 +6,7 @@ Caddy's `file_server` is the whole runtime; `fototrip serve` is a development
 convenience and plays no part here.
 
 ```
-/home/lackas/Data/Fototrips/      ->  /srv/fototrips  (read-only in the container)
+/home/fototrip/                   ->  /srv/fototrip   (read-only in the container)
     index.html                        the overview, built by `fototrip index`
     argentina-2026/                   a built site, copied as it is
     norway-2025/
@@ -21,7 +21,7 @@ on the `/var` volume, which has about 66 GB free and also carries Docker and
 the logs. A trip is roughly 850 MB. `/home` has 2.9 TB.
 
 ```bash
-mkdir -p /home/lackas/Data/Fototrips
+mkdir -p /home/fototrip
 ```
 
 **2. Mount it into the Caddy container**, read-only, following the same
@@ -29,7 +29,7 @@ pattern as `ting` and `emit-cache`. In `/var/www/caddy/docker-compose.yml`
 (root-owned), under the `caddy` service's volumes:
 
 ```yaml
-- /home/lackas/Data/Fototrips:/srv/fototrips:ro
+- /home/fototrip:/srv/fototrip:ro
 ```
 
 Then `docker compose up -d` in `/var/www/caddy`. This recreates the container,

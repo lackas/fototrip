@@ -11,7 +11,7 @@ set -euo pipefail
 
 SOURCE="${1:?usage: deploy.sh <folder of built trips>}"
 HOST="${FOTOTRIP_HOST:-lackas@server.lackas.net}"
-ROOT="${FOTOTRIP_ROOT:-/home/lackas/Data/Fototrips}"
+ROOT="${FOTOTRIP_ROOT:-/home/fototrip}"
 URL="${FOTOTRIP_URL:-https://fototrip.lackas.net}"
 
 [ -f "$SOURCE/index.html" ] || {
@@ -23,7 +23,7 @@ echo "==> $SOURCE -> $HOST:$ROOT/"
 # No -z: JPEGs do not compress and it only burns CPU at both ends.
 # --delete so photos dropped by a rebuild do not stay online.
 # .fototrip-cache.json is build metadata; the site does not need it.
-rsync -a --delete --partial --info=progress2 \
+rsync -a --delete --partial \
 	--exclude '.fototrip-cache.json' --exclude 'trips.toml' \
 	"$SOURCE/" "$HOST:$ROOT/"
 

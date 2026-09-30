@@ -436,3 +436,47 @@ def test_the_page_works_under_the_content_security_policy_it_is_served_with(page
     # test the fixture hands the next page to -- which looked like an unrelated
     # failure in another file.
     page.unroute_all(behavior="ignoreErrors")
+
+
+def _deployed_referrer_policy() -> str:
+    match = re.search(r'Referrer-Policy "([^"]+)"', CADDYFILE.read_text())
+    assert match, f"no Referrer-Policy found in {CADDYFILE}"
+    return match.group(1)
+
+
+def test_tile_requests_carry_a_referer_under_the_deployed_referrer_policy(page, site_url):
+    """OpenStreetMap's tile policy requires a Referer from browser apps, and
+    without one real Chrome gets the yellow-and-black "Access blocked" tile.
+
+    The site serves `Referrer-Policy: no-referrer` on purpose, so photo URLs do
+    not leak anywhere; the tile layer has to override that for its own images.
+    Headless Chromium was let through without a Referer, which is why the live
+    check came back green while the browser that mattered saw 403s.
+    """
+    url, _ = site_url
+    referers = []
+
+    def with_policy(route):
+        response = route.fetch()
+        headers = {**response.headers, "referrer-policy": _deployed_referrer_policy()}
+        route.fulfill(response=response, headers=headers)
+
+    page.on(
+        "request",
+        lambda r: (
+            referers.append(r.all_headers().get("referer", ""))
+            if "tile.openstreetmap.org" in r.url
+            else None
+        ),
+    )
+    page.route(url.rstrip("/") + "/**", with_policy)
+    _ready(page, url)
+    page.wait_for_function("() => document.querySelectorAll('img.leaflet-tile').length > 0")
+
+    origin = url.split("/", 3)[:3]
+    assert referers, "no tile was requested"
+    # Only the origin -- the page path names the trip and has no business
+    # travelling to a third party.
+    assert set(referers) == {"/".join(origin) + "/"}, referers
+
+    page.unroute_all(behavior="ignoreErrors")
