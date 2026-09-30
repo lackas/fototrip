@@ -64,7 +64,10 @@ tile_url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
 tile_attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 ```
 
-`tile_url` and `tile_attribution` default to OpenStreetMap.
+`tile_url` and `tile_attribution` default to OpenStreetMap. The tile URL is
+read from `photos.json` at runtime, so if you serve the site under a
+Content-Security-Policy, `img-src` has to allow whichever provider you point
+it at.
 
 ## Place names
 

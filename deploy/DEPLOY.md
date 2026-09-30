@@ -101,6 +101,11 @@ an inline script, and the overview has its own `overview.css` rather than an
 inline `<style>`. `tests/test_frontend.py` loads a real built page with this
 exact policy enforced and fails if an inline block returns.
 
+One consequence of that design: the tile URL is now data rather than code, so
+`img-src` and `trip.toml` have to agree. Point `tile_url` at a provider other
+than OpenStreetMap and the policy blocks it -- and the failure shows up here,
+as a blank map, rather than at build time. Widen `img-src` in the same change.
+
 ## If a trip should be public
 
 Drop the `basic_auth` block for that host. Bear in mind what the README says:
