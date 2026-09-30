@@ -480,3 +480,72 @@ def test_tile_requests_carry_a_referer_under_the_deployed_referrer_policy(page, 
     assert set(referers) == {"/".join(origin) + "/"}, referers
 
     page.unroute_all(behavior="ignoreErrors")
+
+
+def _minimap_centre(page):
+    return page.evaluate(
+        "() => { const c = window.fototrip.minimap.getCenter(); return [c.lat, c.lng]; }"
+    )
+
+
+def test_the_lightbox_shows_a_small_map_of_where_the_photo_was_taken(page, site_url):
+    """Paging through every photo loses the sense of place; this keeps it."""
+    url, _ = site_url
+    _ready(page, url)
+    _open_lightbox(page, 0)
+
+    assert page.locator(".pswp__minimap").is_visible()
+    first = page.evaluate("() => window.fototrip.state.visible[0]")
+    centre = _minimap_centre(page)
+    # Leaflet snaps the centre to whole pixels, about 75 m at this zoom.
+    assert abs(centre[0] - first["lat"]) < 1e-3 and abs(centre[1] - first["lon"]) < 1e-3
+    # city level, not the zoom of the big map behind it
+    assert page.evaluate("window.fototrip.minimap.getZoom()") == 12
+    # and it has tiles, not just a grey box
+    page.wait_for_function(
+        """() => [...document.querySelectorAll('.pswp__minimap img.leaflet-tile')]
+                   .some((t) => t.complete && t.naturalWidth > 0)"""
+    )
+
+
+def test_the_small_map_follows_next_and_prev(page, site_url):
+    url, _ = site_url
+    _ready(page, url)
+    # Buenos Aires follows Iguazu in the fixture, so the move is unmistakable
+    index = page.evaluate(
+        """() => { const v = window.fototrip.state.visible;
+                   return v.findIndex((p, i) => i > 0 && Math.abs(p.lat - v[i - 1].lat) > 1); }"""
+    )
+    assert index > 0, "the fixture should hold two consecutive photos far apart"
+    _open_lightbox(page, index - 1)
+    page.evaluate("() => window.fototrip.lightbox.pswp.next()")
+    target = page.evaluate("(i) => window.fototrip.state.visible[i]", index)
+    page.wait_for_function(
+        """(p) => { const c = window.fototrip.minimap.getCenter();
+                    return Math.abs(c.lat - p.lat) < 1e-3 && Math.abs(c.lng - p.lon) < 1e-3; }""",
+        arg=target,
+    )
+
+
+def test_there_is_no_small_map_on_a_phone(page, site_url):
+    """On a narrow screen it would sit on top of the photo."""
+    url, _ = site_url
+    page.set_viewport_size({"width": 390, "height": 800})
+    _ready(page, url)
+    _open_lightbox(page, 0)
+    assert page.locator(".pswp__minimap").count() == 0
+
+
+def test_the_small_map_sits_in_the_bottom_left_corner(page, site_url):
+    """Leaflet sets `position: relative` inline on a container it cannot
+    measure yet, which silently beat the stylesheet and put the map at the
+    top of the screen, half outside it. Being visible was never the question."""
+    url, _ = site_url
+    _ready(page, url)
+    _open_lightbox(page, 0)
+
+    box = page.locator(".pswp__minimap").bounding_box()
+    viewport = page.viewport_size
+    assert box["x"] < 40, box
+    assert box["y"] > viewport["height"] / 2, box
+    assert box["y"] + box["height"] <= viewport["height"], box

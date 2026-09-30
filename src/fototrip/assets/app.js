@@ -12,6 +12,7 @@ const state = {
   days: [],
   selectedDay: null,
   bounds: null,
+  tiles: null,
 };
 
 const map = L.map("map", { zoomControl: true, worldCopyJump: false });
@@ -29,6 +30,7 @@ const DEFAULT_TILES = {
 function addTileLayer(tiles) {
   // A site built before the manifest carried this still gets a map.
   const source = tiles && tiles.url ? tiles : DEFAULT_TILES;
+  state.tiles = source;
   L.tileLayer(source.url, {
     attribution: source.attribution || DEFAULT_TILES.attribution,
     maxZoom: 19,
@@ -152,6 +154,12 @@ function setVisible(photos) {
   }
 }
 
+/* The small map in the lightbox: city level, and only on screens wide enough
+ * that it does not cover the photo. */
+const MINIMAP_ZOOM = 12;
+const MINIMAP_MIN_WIDTH = 900;
+let minimap = null;
+
 /* PhotoSwipe over the currently visible set, so next/prev walks the trip. */
 const lightbox = new PhotoSwipeLightbox({
   pswpModule: PhotoSwipe,
@@ -187,6 +195,58 @@ lightbox.on("uiRegister", () => {
       };
       pswp.on("change", fill);
       fill();
+    },
+  });
+
+  // Paging through a whole trip loses the sense of place, so a desktop-sized
+  // screen gets a small map of where each photo was taken. On a phone it would
+  // sit on top of the photo, so there it is not built at all.
+  if (!window.matchMedia(`(min-width: ${MINIMAP_MIN_WIDTH}px)`).matches) return;
+  lightbox.pswp.ui.registerElement({
+    name: "minimap",
+    appendTo: "root",
+    onInit: (element, pswp) => {
+      // Leaflet sets `position: relative` inline on a container whose
+      // computed position it cannot read yet, and inline beats app.css. Said
+      // here first, it leaves the corner placement alone.
+      element.style.position = "absolute";
+      minimap = L.map(element, {
+        zoomControl: false,
+        dragging: false,
+        scrollWheelZoom: false,
+        doubleClickZoom: false,
+        boxZoom: false,
+        keyboard: false,
+        touchZoom: false,
+      });
+      minimap.attributionControl.setPrefix(false);
+      L.tileLayer(state.tiles.url, {
+        attribution: state.tiles.attribution,
+        referrerPolicy: "strict-origin",
+        maxZoom: 19,
+      }).addTo(minimap);
+      const dot = L.circleMarker([0, 0], {
+        radius: 6,
+        weight: 2,
+        color: "#fff",
+        fillColor: "#e8833a",
+        fillOpacity: 1,
+      }).addTo(minimap);
+      const follow = () => {
+        const photo = state.visible[pswp.currIndex];
+        if (!photo) return;
+        dot.setLatLng([photo.lat, photo.lon]);
+        minimap.setView([photo.lat, photo.lon], MINIMAP_ZOOM);
+      };
+      pswp.on("change", follow);
+      follow();
+      // Built while the lightbox is still fading in, so measure again once it
+      // has its real size, or the tiles are laid out for a zero-sized box.
+      pswp.on("openingAnimationEnd", () => minimap.invalidateSize());
+      pswp.on("destroy", () => {
+        minimap.remove();
+        minimap = null;
+      });
     },
   });
 });
@@ -266,6 +326,13 @@ async function boot() {
 // without #timeline's overflow-y: hidden clipping it.
 const TIMELINE_MAX_BAR = 44;
 
+/* A second click on the day already selected opens its first photo: a way
+ * into the pictures without zooming until a single marker appears. */
+function clickDay(day) {
+  if (day === state.selectedDay && state.visible.length > 0) openLightboxAt(0);
+  else selectDay(day);
+}
+
 function selectDay(day) {
   state.selectedDay = day;
   setVisible(day === null ? state.photos : state.photos.filter((p) => p.day === day));
@@ -308,7 +375,7 @@ function renderTimeline() {
   for (const node of dayCellContents(TIMELINE_MAX_BAR, "All", state.photos.length)) {
     all.appendChild(node);
   }
-  all.addEventListener("click", () => selectDay(null));
+  all.addEventListener("click", () => clickDay(null));
   timeline.appendChild(all);
 
   for (const entry of state.days) {
@@ -323,7 +390,7 @@ function renderTimeline() {
     for (const node of dayCellContents(height, `${dayOfMonth}.${month}.`, entry.count)) {
       cell.appendChild(node);
     }
-    cell.addEventListener("click", () => selectDay(entry.day));
+    cell.addEventListener("click", () => clickDay(entry.day));
     timeline.appendChild(cell);
   }
 }
@@ -346,6 +413,9 @@ document.addEventListener("keydown", (event) => {
 window.fototrip = {
   state, map, clusterGroup, lightbox, markers, addTileLayer,
   setVisible, openLightboxAt, fitTo, selectDay, stepDay, renderTimeline, revealOnMap,
+  get minimap() {
+    return minimap;
+  },
 };
 
 boot();

@@ -152,3 +152,42 @@ def test_day_cells_fit_inside_the_timeline_without_clipping(page, site_url):
         f"({measured['contentHeight']}px) — they will be clipped by "
         f"#timeline's overflow-y: hidden"
     )
+
+
+def _lightbox_open(page):
+    page.wait_for_selector(".pswp", state="visible")
+    page.wait_for_function(
+        "() => { const p = window.fototrip.lightbox.pswp; return !!p && p.opener.isOpen; }"
+    )
+
+
+def test_the_first_click_on_a_day_only_selects_it(page, site_url):
+    url, _ = site_url
+    _ready(page, url)
+    page.click('.day-cell[data-day="2026-07-19"]')
+    page.wait_for_timeout(300)
+    assert page.locator(".pswp").count() == 0
+
+
+def test_clicking_the_selected_day_again_opens_its_first_photo(page, site_url):
+    """A way into the photos without zooming until a single marker appears."""
+    url, _ = site_url
+    _ready(page, url)
+    page.click('.day-cell[data-day="2026-07-19"]')
+    page.click('.day-cell[data-day="2026-07-19"]')
+    _lightbox_open(page)
+
+    assert page.evaluate("window.fototrip.lightbox.pswp.currIndex") == 0
+    assert page.evaluate("window.fototrip.lightbox.pswp.getNumItems()") == 4
+    first = page.evaluate("window.fototrip.state.visible[0]")
+    assert first["day"] == "2026-07-19"
+
+
+def test_clicking_all_while_it_is_selected_starts_at_the_first_photo(page, site_url):
+    url, _ = site_url
+    _ready(page, url)
+    page.click(".day-cell.all")  # selected on load already
+    _lightbox_open(page)
+
+    assert page.evaluate("window.fototrip.lightbox.pswp.currIndex") == 0
+    assert page.evaluate("window.fototrip.lightbox.pswp.getNumItems()") == 6

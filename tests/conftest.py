@@ -205,7 +205,7 @@ def never_fetch_real_map_tiles(page):
     policy forbids -- and it got this machine a 403 once already. Tiles are
     served locally instead; nothing about what the tests assert changes.
     """
-    asked, served, blocked = [], [], []
+    answered, served = [], []
 
     def serve_locally(route):
         served.append(route.request.url)
@@ -214,26 +214,24 @@ def never_fetch_real_map_tiles(page):
     for pattern in ("**://tile.openstreetmap.org/**", "**://*.tile.openstreetmap.org/**"):
         page.route(pattern, serve_locally)
 
-    def note(collection, url):
-        if "openstreetmap.org" in url:
-            collection.append(url)
-
-    # `request` fires before routing, so seeing one here does not mean it left
-    # the machine -- what matters is whether the stub handled it. Anything asked
-    # for and not served locally got past the stub, which is how a suite quietly
-    # goes back to using the volunteer servers.
-    page.on("request", lambda request: note(asked, request.url))
-    # A request the page's own Content-Security-Policy refused never opened a
-    # socket, so it is not an escape. Without this the CSP test -- the one test
-    # here that deliberately enforces a policy -- reports every tile it just
-    # proved was blocked as a tile that reached OpenStreetMap.
+    # Counted when a response arrives, not when the page asks: a request only
+    # reached OpenStreetMap if something answered it, and anything answered
+    # that the stub did not serve came from the real servers. A tile the
+    # page's own Content-Security-Policy refused is never answered, so the CSP
+    # test -- the one test here that deliberately enforces a policy -- does not
+    # show up as an escape.
     page.on(
-        "requestfailed",
-        lambda request: note(blocked, request.url) if request.failure == "csp" else None,
+        "requestfinished",
+        lambda request: (
+            answered.append(request.url) if "openstreetmap.org" in request.url else None
+        ),
     )
 
     yield
 
-    page.unroute_all(behavior="ignoreErrors")
-    escaped = sorted(set(asked) - set(served) - set(blocked))
+    # Close before anything else. The lightbox's small map asks for its tiles
+    # moments before a test typically ends, and removing the routes while
+    # those are still pending would let exactly them go out for real.
+    page.close()
+    escaped = sorted(set(answered) - set(served))
     assert escaped == [], f"these went to OpenStreetMap for real: {escaped[:5]}"
