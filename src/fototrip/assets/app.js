@@ -21,7 +21,7 @@ const map = L.map("map", { zoomControl: true, worldCopyJump: false });
  * `script-src 'unsafe-inline'` on whatever serves this. The layer is therefore
  * added in boot(), once the manifest has arrived. */
 const DEFAULT_TILES = {
-  url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
   attribution:
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 };
@@ -32,7 +32,6 @@ function addTileLayer(tiles) {
   L.tileLayer(source.url, {
     attribution: source.attribution || DEFAULT_TILES.attribution,
     maxZoom: 19,
-    subdomains: "abc",
   }).addTo(map);
 }
 

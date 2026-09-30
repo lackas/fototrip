@@ -1,5 +1,6 @@
 """Synthetic JPEGs with chosen GPS and timestamps, so no real photos are committed."""
 
+import base64
 import threading
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -185,3 +186,45 @@ def browser_context_args(browser_context_args):
     the browser's zone would read visibly wrong.
     """
     return {**browser_context_args, "timezone_id": "Europe/Berlin", "locale": "de-DE"}
+
+
+# A 1x1 PNG. The browser still builds real img.leaflet-tile elements from it,
+# so the tests that check the map has tiles still check that -- they just do
+# not ask OpenStreetMap for thousands of images to do it.
+_TILE_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+@pytest.fixture(autouse=True)
+def never_fetch_real_map_tiles(page):
+    """No test may pull tiles from OpenStreetMap's volunteer servers.
+
+    Twenty-nine browser tests, each opening a real map, times a full-suite run
+    every few minutes, is exactly the automated bulk downloading their usage
+    policy forbids -- and it got this machine a 403 once already. Tiles are
+    served locally instead; nothing about what the tests assert changes.
+    """
+    asked, served = [], []
+
+    def serve_locally(route):
+        served.append(route.request.url)
+        route.fulfill(status=200, content_type="image/png", body=_TILE_PNG)
+
+    for pattern in ("**://tile.openstreetmap.org/**", "**://*.tile.openstreetmap.org/**"):
+        page.route(pattern, serve_locally)
+
+    # `request` fires before routing, so seeing one here does not mean it left
+    # the machine -- what matters is whether the stub handled it. Anything asked
+    # for and not served locally got past the stub, which is how a suite quietly
+    # goes back to using the volunteer servers.
+    page.on(
+        "request",
+        lambda request: asked.append(request.url) if "openstreetmap.org" in request.url else None,
+    )
+
+    yield
+
+    page.unroute_all(behavior="ignoreErrors")
+    escaped = sorted(set(asked) - set(served))
+    assert escaped == [], f"these went to OpenStreetMap for real: {escaped[:5]}"

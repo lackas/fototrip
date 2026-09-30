@@ -56,7 +56,7 @@ fototrip.lackas.net {
 	#
 	# The one third-party source is the map tiles. `data:` for images because
 	# Leaflet uses a data URI placeholder while tiles load.
-	header Content-Security-Policy "default-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
+	header Content-Security-Policy "default-src 'self'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
 
 	# The vendored libraries are pinned by version and never change under the
 	# same path, so they can be cached hard.
