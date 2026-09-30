@@ -364,8 +364,12 @@ def test_the_page_works_under_the_content_security_policy_it_is_served_with(page
     """
     url, _ = site_url
     violations = []
-    page.on("console", lambda m: violations.append(m.text)
-            if "content security policy" in m.text.lower() else None)
+    page.on(
+        "console",
+        lambda m: (
+            violations.append(m.text) if "content security policy" in m.text.lower() else None
+        ),
+    )
 
     def with_csp(route):
         response = route.fetch()

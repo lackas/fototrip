@@ -24,7 +24,7 @@ echo "==> $SOURCE -> $HOST:$ROOT/"
 # --delete so photos dropped by a rebuild do not stay online.
 # .fototrip-cache.json is build metadata; the site does not need it.
 rsync -a --delete --partial --info=progress2 \
-	--exclude '.fototrip-cache.json' \
+	--exclude '.fototrip-cache.json' --exclude 'trips.toml' \
 	"$SOURCE/" "$HOST:$ROOT/"
 
 # Without credentials, so the script carries no secret. A 401 proves Caddy is

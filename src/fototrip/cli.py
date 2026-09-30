@@ -25,7 +25,7 @@ from fototrip.localtime import Localizer
 from fototrip.manifest import assign_ids, build_manifest
 from fototrip.metadata import read_photo
 from fototrip.models import Photo, SkipPhoto, SkipReason
-from fototrip.overview import find_trips, render_overview
+from fototrip.overview import OverviewConfig, find_trips, render_overview
 from fototrip.places import Geocoder, PlaceCache, fetch_address
 from fototrip.scan import find_photos
 from fototrip.site import TripConfig, render_site
@@ -309,16 +309,20 @@ def export_album_command(album, destination, replace, in_album, jpeg_quality, os
 
 @main.command("index")
 @click.argument("folder", type=click.Path(exists=True, file_okay=False, path_type=Path))
-@click.option("--title", default=None, help="Heading for the page. Defaults to FOLDER's name.")
-def index_command(folder, title) -> None:
+@click.option(
+    "--title", default=None, help="Heading. Overrides trips.toml; defaults to FOLDER's name."
+)
+@click.option("--subtitle", default=None, help="A line under the heading. Overrides trips.toml.")
+def index_command(folder, title, subtitle) -> None:
     """Write an overview page over every built trip in FOLDER.
 
     Each subdirectory holding a photos.json is listed and linked. The page
     lands in FOLDER itself, so a web server pointed at FOLDER serves the
     overview and the trips together, with nothing else to run.
     """
+    config = OverviewConfig.load(folder, title=title, subtitle=subtitle)
     trips = find_trips(folder)
-    render_overview(trips, folder, title=title or folder.name)
+    render_overview(trips, folder, title=config.title, subtitle=config.subtitle)
 
     if not trips:
         click.echo(f"No built trips found in {folder}. Wrote an empty overview anyway.")

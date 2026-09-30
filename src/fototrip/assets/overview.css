@@ -1,48 +1,155 @@
 /* The overview sits one level above the trips, so it cannot share their
    app.css -- this is its own, written beside index.html by `fototrip index`. */
+
 :root {
-  --bg: #14161a;
+  --bg: #101216;
   --fg: #e8e6e3;
-  --muted: #9aa0a6;
+  --muted: #98a0aa;
   --accent: #e8833a;
-  --cell: #2a2e35;
+  --card: #1b1f26;
+  --card-hover: #222831;
+  --line: rgba(255, 255, 255, 0.07);
+  --graticule: rgba(120, 165, 210, 0.055);
 }
+
 * { box-sizing: border-box; }
+
 body {
   margin: 0;
+  min-height: 100vh;
   background: var(--bg);
   color: var(--fg);
-  font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
-header { padding: 28px 24px 8px; }
-h1 { margin: 0; font-size: 22px; font-weight: 600; }
-header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+/* A graticule -- the lat/long grid of a map -- rather than a world map. Drawn
+   in CSS so the page stays self-contained and honest: an approximated coastline
+   would be a map that lies, and this only suggests one. The glow lifts the
+   middle of the page so the grid fades out at the edges instead of tiling
+   visibly to the corners. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(90, 130, 175, 0.16), transparent 70%),
+    repeating-linear-gradient(to right, var(--graticule) 0 1px, transparent 1px 88px),
+    repeating-linear-gradient(to bottom, var(--graticule) 0 1px, transparent 1px 88px);
+}
+
+header {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 56px 24px 8px;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 38px);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+header .subtitle {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+header .count {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 main {
+  max-width: 1200px;
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
-  padding: 20px 24px 40px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+  padding: 28px 24px 64px;
 }
+
 a.trip {
-  display: block;
+  display: flex;
+  flex-direction: column;
   text-decoration: none;
   color: inherit;
-  background: var(--cell);
-  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
   overflow: hidden;
-  transition: transform 0.12s, outline-color 0.12s;
-  outline: 2px solid transparent;
+  transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
 }
-a.trip:hover, a.trip:focus-visible { transform: translateY(-2px); outline-color: var(--accent); }
+
+a.trip:hover,
+a.trip:focus-visible {
+  transform: translateY(-3px);
+  background: var(--card-hover);
+  border-color: rgba(232, 131, 58, 0.5);
+  outline: none;
+}
+
 .cover {
   display: block;
   width: 100%;
-  aspect-ratio: 3 / 2;
+  aspect-ratio: 4 / 3;
   object-fit: cover;
-  background: #0d0f12;
+  background: #0a0c0f;
 }
-.body { padding: 12px 14px 14px; }
-.body h2 { margin: 0; font-size: 16px; font-weight: 600; }
-.body .subtitle { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
-.body .meta { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
-.empty { padding: 0 24px 40px; color: var(--muted); }
+
+/* Generous and even, so the title has room to breathe instead of sitting
+   against the edge of the photo above it. */
+.body { padding: 18px 20px 20px; }
+
+.body h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+
+.body .subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* One item per line rather than a run of middots: on a narrow screen the
+   single line wrapped mid-phrase, which is what made the card look untidy. */
+.body .meta {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.body .meta .dates { flex-basis: 100%; }
+.body .meta .count { color: var(--accent); }
+
+.empty {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 8px 24px 64px;
+  color: var(--muted);
+}
+
+@media (max-width: 520px) {
+  header { padding-top: 36px; }
+  main { gap: 18px; padding-bottom: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a.trip { transition: none; }
+  a.trip:hover, a.trip:focus-visible { transform: none; }
+}
