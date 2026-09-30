@@ -326,3 +326,60 @@ def test_closing_the_lightbox_leaves_the_zoom_alone_when_the_photo_stands_alone(
     assert page.evaluate("window.fototrip.map.getZoom()") == 15
     centre = _map_centre(page)
     assert abs(centre[0] - photo["lat"]) < 1e-4 and abs(centre[1] - photo["lon"]) < 1e-4
+
+
+def test_the_map_gets_its_tiles_from_the_manifest(page, site_url):
+    """The tile layer is added after photos.json arrives, not from an inline
+    script in the page. If that wiring breaks, the map is simply blank."""
+    url, _ = site_url
+    _ready(page, url)
+
+    layers = page.evaluate(
+        """() => {
+          let tiles = 0;
+          window.fototrip.map.eachLayer((l) => { if (l instanceof L.TileLayer) tiles++; });
+          return tiles;
+        }"""
+    )
+    assert layers == 1
+
+    # and the tiles are actually being requested
+    page.wait_for_function("() => document.querySelectorAll('img.leaflet-tile').length > 0")
+
+
+STRICT_CSP = (
+    "default-src 'self'; "
+    "img-src 'self' data: https://*.tile.openstreetmap.org; "
+    "style-src 'self'; script-src 'self'; connect-src 'self'; "
+    "frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
+)
+
+
+def test_the_page_works_under_the_content_security_policy_it_is_served_with(page, site_url):
+    """The deployed policy, enforced, against the real page.
+
+    Every other browser test here runs with no policy at all, so none of them
+    would notice an inline script or an inline style creeping back in -- the
+    site would keep passing its tests and break the moment it was served.
+    """
+    url, _ = site_url
+    violations = []
+    page.on("console", lambda m: violations.append(m.text)
+            if "content security policy" in m.text.lower() else None)
+
+    def with_csp(route):
+        response = route.fetch()
+        headers = {**response.headers, "content-security-policy": STRICT_CSP}
+        route.fulfill(response=response, headers=headers)
+
+    page.route("**/*", with_csp)
+    _ready(page, url)
+
+    # the map got its tiles, so the manifest-borne configuration survived
+    page.wait_for_function("() => document.querySelectorAll('img.leaflet-tile').length > 0")
+    # and the lightbox still opens, which is where PhotoSwipe styles the DOM
+    page.evaluate("() => window.fototrip.openLightboxAt(0)")
+    page.wait_for_selector(".pswp", state="visible")
+    assert page.locator(".pswp__img").first.is_visible()
+
+    assert violations == [], violations

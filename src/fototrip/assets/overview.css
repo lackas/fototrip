@@ -1,0 +1,48 @@
+/* The overview sits one level above the trips, so it cannot share their
+   app.css -- this is its own, written beside index.html by `fototrip index`. */
+:root {
+  --bg: #14161a;
+  --fg: #e8e6e3;
+  --muted: #9aa0a6;
+  --accent: #e8833a;
+  --cell: #2a2e35;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+header { padding: 28px 24px 8px; }
+h1 { margin: 0; font-size: 22px; font-weight: 600; }
+header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+main {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  padding: 20px 24px 40px;
+}
+a.trip {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  background: var(--cell);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: transform 0.12s, outline-color 0.12s;
+  outline: 2px solid transparent;
+}
+a.trip:hover, a.trip:focus-visible { transform: translateY(-2px); outline-color: var(--accent); }
+.cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  background: #0d0f12;
+}
+.body { padding: 12px 14px 14px; }
+.body h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.body .subtitle { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.body .meta { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.empty { padding: 0 24px 40px; color: var(--muted); }

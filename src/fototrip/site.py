@@ -57,15 +57,21 @@ def render_site(manifest: dict, config: TripConfig, out_dir: Path) -> None:
     html = env.get_template("index.html.j2").render(
         title=config.title,
         subtitle=config.subtitle,
-        tile_url=config.tile_url,
         tile_attribution=config.tile_attribution,
     )
     (out_dir / "index.html").write_text(html, encoding="utf-8")
 
-    # The trip's name travels in the manifest as well as in the page, so that an
-    # overview over several built trips can read it without parsing HTML. A copy,
-    # because the caller's dict is not ours to grow.
-    payload = {"title": config.title, "subtitle": config.subtitle, **manifest}
+    # The trip's name and its tile provider travel in the manifest rather than in
+    # the page: the name so an overview over several trips can read it without
+    # parsing HTML, the tiles so the page needs no inline script to hand them to
+    # app.js -- which is what would force `script-src 'unsafe-inline'` on whatever
+    # serves this. A copy, because the caller's dict is not ours to grow.
+    payload = {
+        "title": config.title,
+        "subtitle": config.subtitle,
+        "tiles": {"url": config.tile_url, "attribution": config.tile_attribution},
+        **manifest,
+    }
     (out_dir / "photos.json").write_text(
         json.dumps(payload, separators=(",", ":")), encoding="utf-8"
     )

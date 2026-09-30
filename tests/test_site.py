@@ -139,3 +139,44 @@ def test_rendering_does_not_mutate_the_caller_s_manifest(tmp_path):
     manifest = {"photos": [], "days": [], "bounds": None}
     render_site(manifest, TripConfig(title="Iceland"), tmp_path)
     assert "title" not in manifest
+
+
+def test_the_manifest_carries_the_tile_configuration(tmp_path):
+    """So the page needs no inline script to hand it to app.js.
+
+    An inline script is the one thing that forces `script-src 'unsafe-inline'`
+    into the Content-Security-Policy of whatever serves this.
+    """
+    render_site(MANIFEST, TripConfig(title="Iceland"), tmp_path)
+    written = json.loads((tmp_path / "photos.json").read_text())
+    assert written["tiles"]["url"].startswith("https://")
+    assert "OpenStreetMap" in written["tiles"]["attribution"]
+
+
+def test_a_custom_tile_provider_reaches_the_manifest(tmp_path):
+    render_site(
+        MANIFEST,
+        TripConfig(
+            title="Iceland",
+            tile_url="https://tiles.example/{z}/{x}/{y}.png",
+            tile_attribution="Example",
+        ),
+        tmp_path,
+    )
+    written = json.loads((tmp_path / "photos.json").read_text())
+    assert written["tiles"] == {
+        "url": "https://tiles.example/{z}/{x}/{y}.png",
+        "attribution": "Example",
+    }
+
+
+def test_the_page_carries_no_inline_script(tmp_path):
+    """Every <script> must have a src, so `script-src 'self'` suffices."""
+    import re
+
+    render_site(MANIFEST, TripConfig(title="Iceland"), tmp_path)
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+
+    for tag, body in re.findall(r"<script([^>]*)>(.*?)</script>", html, re.DOTALL):
+        assert "src=" in tag, f"inline script: {body.strip()[:80]}"
+        assert body.strip() == "", f"script with both src and body: {body.strip()[:80]}"

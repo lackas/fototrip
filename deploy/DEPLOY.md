@@ -87,6 +87,14 @@ The smoke test at the end expects **401**. A 200 would mean the site is
 answering without asking for the password, which is the failure actually worth
 catching.
 
+## The Content-Security-Policy
+
+Strict, with no `'unsafe-inline'`. That is a property of the pages, not a
+lucky accident: the tile configuration travels in `photos.json` rather than in
+an inline script, and the overview has its own `overview.css` rather than an
+inline `<style>`. `tests/test_frontend.py` loads a real built page with this
+exact policy enforced and fails if an inline block returns.
+
 ## If a trip should be public
 
 Drop the `basic_auth` block for that host. Bear in mind what the README says:

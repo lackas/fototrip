@@ -7,7 +7,9 @@ page linking into them, which is what this builds.
 """
 
 import json
+import shutil
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -94,3 +96,9 @@ def render_overview(trips: list[Trip], out_dir: Path, *, title: str) -> None:
     )
     html = env.get_template("overview.html.j2").render(title=title, trips=trips)
     (out_dir / "index.html").write_text(html, encoding="utf-8")
+    # Copied rather than inlined, so that serving this needs no
+    # `style-src 'unsafe-inline'`. Overwritten every run: a stale stylesheet
+    # beside a new page is a confusing way to fail.
+    shutil.copyfile(
+        Path(str(files("fototrip") / "assets")) / "overview.css", out_dir / "overview.css"
+    )
