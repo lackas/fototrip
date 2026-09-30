@@ -19,6 +19,9 @@ OSM_ATTRIBUTION = (
 class TripConfig:
     title: str
     subtitle: str = ""
+    # The id of the photo the overview shows on this trip's card. Kept here
+    # rather than in the built site so a rebuild does not forget it.
+    cover: str = ""
     tile_url: str = OSM_TILE_URL
     tile_attribution: str = OSM_ATTRIBUTION
 
@@ -70,6 +73,7 @@ def render_site(manifest: dict, config: TripConfig, out_dir: Path) -> None:
         "title": config.title,
         "subtitle": config.subtitle,
         "tiles": {"url": config.tile_url, "attribution": config.tile_attribution},
+        **({"cover": config.cover} if config.cover else {}),
         **manifest,
     }
     (out_dir / "photos.json").write_text(

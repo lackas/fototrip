@@ -83,13 +83,20 @@ def _read_trip(folder: Path) -> Trip | None:
     # The middle photo, not the first. Photos are ordered by capture time, so
     # the first is whatever was shot on the way out -- an airport, a boarding
     # pass, the first meal. The middle of the trip is where the trip is.
-    middle = photos[len(photos) // 2]
+    shown = photos[len(photos) // 2]
+    # A cover chosen in trip.toml wins -- unless it names no photo here, which
+    # a typo or a rebuild that dropped it would do, and a blank card is worse
+    # than the middle photo.
+    chosen = manifest.get("cover")
+    picked = next((p for p in photos if isinstance(p, dict) and p.get("id") == chosen), None)
+    if chosen and picked is not None:
+        shown = picked
     # The lightbox image, not the thumbnail: thumbnails are 96 px square and a
     # card is several hundred wide, so a thumbnail here is visibly soft. The
     # template loads these lazily, so trips below the fold cost nothing.
     cover = ""
-    if isinstance(middle, dict):
-        cover = middle.get("web") or middle.get("thumb") or ""
+    if isinstance(shown, dict):
+        cover = shown.get("web") or shown.get("thumb") or ""
 
     return Trip(
         # `title` was added to the manifest after the first sites were built, so

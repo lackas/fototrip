@@ -336,3 +336,33 @@ def test_the_subtitle_reaches_the_page(tmp_path):
 
     html = (tmp_path / "index.html").read_text(encoding="utf-8")
     assert "ten years of it" in html
+
+
+def _write_trip_with_cover(root, cover):
+    folder = root / "iceland"
+    folder.mkdir()
+    manifest = {
+        "title": "Iceland",
+        "photos": [{"id": f"IMG_{i}", "web": f"web/IMG_{i}.jpg"} for i in range(5)],
+        "days": [{"day": "2024-05-01", "count": 5}],
+    }
+    if cover is not None:
+        manifest["cover"] = cover
+    (folder / "photos.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_a_chosen_cover_wins_over_the_middle_photo(tmp_path):
+    _write_trip_with_cover(tmp_path, "IMG_4")
+
+    [trip] = find_trips(tmp_path)
+
+    assert trip.cover == "iceland/web/IMG_4.jpg"
+
+
+def test_a_cover_naming_no_photo_falls_back_to_the_middle(tmp_path):
+    """A typo, or a photo dropped by a rebuild, must not blank the card."""
+    _write_trip_with_cover(tmp_path, "IMG_99")
+
+    [trip] = find_trips(tmp_path)
+
+    assert trip.cover == "iceland/web/IMG_2.jpg"

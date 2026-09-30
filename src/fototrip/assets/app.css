@@ -23,6 +23,8 @@ body {
 
 #trip-header { padding: 10px 16px; flex: 0 0 auto; }
 #trip-header h1 { margin: 0; font-size: 19px; font-weight: 600; }
+#trip-header .back { color: var(--muted); font-size: 13px; text-decoration: none; }
+#trip-header .back:hover { color: inherit; text-decoration: underline; }
 #trip-header .subtitle, .build-status { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
 
 #map { flex: 1 1 auto; min-height: 200px; background: #0d0f12; }

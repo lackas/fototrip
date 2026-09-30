@@ -180,3 +180,16 @@ def test_the_page_carries_no_inline_script(tmp_path):
     for tag, body in re.findall(r"<script([^>]*)>(.*?)</script>", html, re.DOTALL):
         assert "src=" in tag, f"inline script: {body.strip()[:80]}"
         assert body.strip() == "", f"script with both src and body: {body.strip()[:80]}"
+
+
+def test_the_cover_travels_from_trip_toml_into_the_manifest(tmp_path):
+    (tmp_path / "trip.toml").write_text('cover = "IMG_5659"\n')
+    out = tmp_path / "site"
+    render_site(MANIFEST, TripConfig.load(tmp_path), out)
+    assert json.loads((out / "photos.json").read_text())["cover"] == "IMG_5659"
+
+
+def test_the_page_links_back_to_the_overview(tmp_path):
+    """Trips are deployed side by side under the overview, one level up."""
+    render_site(MANIFEST, TripConfig(title="T"), tmp_path)
+    assert '<a class="back" href="../">' in (tmp_path / "index.html").read_text()
