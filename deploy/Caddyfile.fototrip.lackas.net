@@ -12,11 +12,19 @@ fototrip.lackas.net {
 	root * /srv/fototrips
 	import access_log
 
-	# Cost 12, not the 14 used elsewhere. bcrypt is deliberately slow and one
-	# gallery page issues a hundred-plus image requests, each carrying the
-	# credentials. Caddy caches verified ones, but 14 leaves no headroom if
-	# that cache ever misses. Generate with:
-	#   docker exec -it caddy caddy hash-password --bcrypt-cost 12
+	# Cost 4, not the 14 the other hosts on this server use, and that is a
+	# decision rather than an oversight. This is a screen against search engines
+	# and idle URL-guessing, not protection from someone who has the server:
+	# whoever can read this hash can read the JPEGs beside it.
+	#
+	# Measured here: cost 4 = 1.0 ms per verification, cost 11 = 105 ms, cost
+	# 14 = 830 ms. One gallery page issues over a hundred image requests, each
+	# carrying the credentials -- a tenth of a second of CPU against eighty.
+	#
+	# What it does cost: a cost-4 hash falls to an offline attack in minutes, so
+	# the password here must be one used nowhere else.
+	#
+	#   docker exec -it caddy caddy hash-password --bcrypt-cost 4
 	basic_auth {
 		lackas REPLACE_WITH_BCRYPT_HASH
 	}
@@ -45,7 +53,12 @@ fototrip.lackas.net {
 	# page carries an inline stylesheet because it sits above the trips and has
 	# no app.css of its own. The policy still blocks third-party script, frame
 	# and object sources, which is the part that matters here.
-	header Content-Security-Policy "default-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; object-src 'none'"
+	#
+	# It costs little here because the pages offer nothing to inject into: no
+	# forms, no query parameters, no innerHTML anywhere, and the only text from
+	# a third party -- the place names from Nominatim -- is inserted with
+	# textContent. Worth revisiting if a trip is ever served without a password.
+	header Content-Security-Policy "default-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
 
 	# The vendored libraries are pinned by version and never change under the
 	# same path, so they can be cached hard.

@@ -40,14 +40,18 @@ container.
 **3. The password.**
 
 ```bash
-docker exec -it caddy caddy hash-password --bcrypt-cost 12
+docker exec -it caddy caddy hash-password --bcrypt-cost 4
 ```
 
-`--bcrypt-cost 12` on purpose. The other hosts use the default 14, which is
-around a second of CPU per verification; a gallery page issues a hundred-plus
-image requests, each carrying the credentials. Caddy caches verified ones, but
-14 leaves no headroom if that cache misses, and 12 is ample for a private
-photo host.
+Cost 4 on purpose, against the 14 the other hosts use. This is a screen against
+search engines and idle URL-guessing, not protection from someone who has the
+server -- whoever can read the hash can read the JPEGs beside it. Measured on
+this machine: cost 4 is 1.0 ms per verification, 11 is 105 ms, 14 is 830 ms,
+and one gallery page issues over a hundred image requests that each carry the
+credentials.
+
+The trade is real, though: a cost-4 hash falls to an offline attack in minutes.
+**Use a password you use nowhere else.**
 
 **4. The Caddy block.** Paste `Caddyfile.fototrip.lackas.net` from this
 directory into `/var/www/caddy/conf/Caddyfile`, with the hash from step 3 in
@@ -74,6 +78,10 @@ deploy/deploy.sh ~/trips
 `rsync` only sends what changed, so a rebuilt trip costs its differences rather
 than its 850 MB. The overview is built locally and travels with the trips, so
 nothing needs installing on the server.
+
+A new trip needs no Caddy and no compose change: a new subdirectory under
+`/home/fototrip/` and another `fototrip index` run is the whole of it. The host
+is generic.
 
 The smoke test at the end expects **401**. A 200 would mean the site is
 answering without asking for the password, which is the failure actually worth
