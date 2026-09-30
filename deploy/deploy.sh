@@ -27,15 +27,28 @@ rsync -a --delete --partial --info=progress2 \
 	--exclude '.fototrip-cache.json' --exclude 'trips.toml' \
 	"$SOURCE/" "$HOST:$ROOT/"
 
-# Without credentials, so the script carries no secret. A 401 proves Caddy is
-# serving this host and that the password is actually being asked for -- which
-# is the failure worth catching, since a missing basic_auth block would answer
-# 200 and put the trips on the open internet.
-echo "==> smoke test"
-code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/")
+# The password check has to come from an address that is not exempt from it.
+# The Caddy block lets the house address and the tailnet in without a prompt
+# (`Satisfy Any`, effectively), so probing from the laptop answers 200 and an
+# earlier version of this script read that as "published without a password"
+# and aborted a perfectly good deploy. The server's own public address is not
+# on that list, so it sees what a stranger sees.
+#
+# No credentials anywhere, so this script carries no secret. A 401 proves Caddy
+# is serving this host and is actually asking -- which is the failure worth
+# catching, since a missing basic_auth block would answer 200 and put the trips
+# on the open internet.
+echo "==> smoke test (probed from $HOST, which basic_auth applies to)"
+code=$(ssh "$HOST" "curl -s -o /dev/null -w '%{http_code}' $URL/")
 echo "$URL/ -> HTTP $code"
 case "$code" in
 	401) echo "    serving, and asking for the password" ;;
 	200) echo "    WARNING: answered without asking for a password" >&2; exit 1 ;;
 	*)   echo "    unexpected status" >&2; exit 1 ;;
 esac
+
+# The Caddy block lives in the server's global Caddyfile and is maintained by
+# hand, so the copy in this directory can drift from it. It did, and a CSP that
+# no longer covered the tile host blocked every map tile while the test suite
+# stayed green. Never again silently.
+"$(dirname "$0")/check-live-config.sh" "$SOURCE"
