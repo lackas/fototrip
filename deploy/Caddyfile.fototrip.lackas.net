@@ -26,7 +26,7 @@ fototrip.lackas.net {
 	#
 	#   docker exec -it caddy caddy hash-password --bcrypt-cost 4
 	basic_auth {
-		lackas REPLACE_WITH_BCRYPT_HASH
+		fototrip REPLACE_WITH_BCRYPT_HASH
 	}
 
 	# JPEGs are already compressed; only the text is worth the CPU. photos.json

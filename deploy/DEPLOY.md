@@ -43,7 +43,9 @@ though it looks like an empty leftover: removing it drops the nested mount out
 of the container's namespace and every URL answers 404 while the files sit
 untouched on the host. `docker restart caddy` puts it back.
 
-**3. The password.**
+**3. The password.** The user is `fototrip`, not a personal login -- this
+guards one host, and the credentials get handed to whoever should see the
+photos.
 
 ```bash
 docker exec -it caddy caddy hash-password --bcrypt-cost 4
