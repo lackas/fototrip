@@ -1,0 +1,61 @@
+# Block for the single global Caddyfile on server.lackas.net,
+# /var/www/caddy/conf/Caddyfile. Not imported from here -- this file is the
+# documented copy, matching the convention used by the other projects.
+#
+# After editing the live file:
+#   /var/www/caddy/reformat.sh && /var/www/caddy/reload.sh
+#
+# No tls directive on purpose: *.lackas.net resolves via wildcard DNS and
+# Caddy obtains a per-host certificate on the first request.
+
+fototrip.lackas.net {
+	root * /srv/fototrips
+	import access_log
+
+	# Cost 12, not the 14 used elsewhere. bcrypt is deliberately slow and one
+	# gallery page issues a hundred-plus image requests, each carrying the
+	# credentials. Caddy caches verified ones, but 14 leaves no headroom if
+	# that cache ever misses. Generate with:
+	#   docker exec -it caddy caddy hash-password --bcrypt-cost 12
+	basic_auth {
+		lackas REPLACE_WITH_BCRYPT_HASH
+	}
+
+	# JPEGs are already compressed; only the text is worth the CPU. photos.json
+	# is the one that matters -- half a megabyte of it per trip.
+	encode {
+		zstd
+		gzip
+		match {
+			header Content-Type text/*
+			header Content-Type application/javascript*
+			header Content-Type application/json*
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000;"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# 'unsafe-inline' is needed twice and is not laziness: the trip page carries
+	# an inline module script that hands the tile URL to app.js, and the overview
+	# page carries an inline stylesheet because it sits above the trips and has
+	# no app.css of its own. The policy still blocks third-party script, frame
+	# and object sources, which is the part that matters here.
+	header Content-Security-Policy "default-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; object-src 'none'"
+
+	# The vendored libraries are pinned by version and never change under the
+	# same path, so they can be cached hard.
+	@vendor path */vendor/*
+	header @vendor Cache-Control "public, max-age=31536000, immutable"
+
+	# Derivatives keep their filename across a rebuild, so a long max-age would
+	# serve yesterday's photo under today's name. An hour is a compromise.
+	@derivatives path */thumb/* */web/*
+	header @derivatives Cache-Control "public, max-age=3600"
+
+	file_server
+}

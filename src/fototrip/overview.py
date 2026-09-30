@@ -50,7 +50,16 @@ def _read_trip(folder: Path) -> Trip | None:
     if not day_values:
         return None
 
-    cover = photos[0].get("thumb") if isinstance(photos[0], dict) else None
+    # The middle photo, not the first. Photos are ordered by capture time, so
+    # the first is whatever was shot on the way out -- an airport, a boarding
+    # pass, the first meal. The middle of the trip is where the trip is.
+    middle = photos[len(photos) // 2]
+    # The lightbox image, not the thumbnail: thumbnails are 96 px square and a
+    # card is several hundred wide, so a thumbnail here is visibly soft. The
+    # template loads these lazily, so trips below the fold cost nothing.
+    cover = ""
+    if isinstance(middle, dict):
+        cover = middle.get("web") or middle.get("thumb") or ""
 
     return Trip(
         # `title` was added to the manifest after the first sites were built, so

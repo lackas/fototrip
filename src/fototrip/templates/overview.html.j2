@@ -42,9 +42,11 @@ a.trip {
 }
 a.trip:hover, a.trip:focus-visible { transform: translateY(-2px); outline-color: var(--accent); }
 .cover {
-  aspect-ratio: 3 / 2;
-  background: #0d0f12 center/cover no-repeat;
   display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  background: #0d0f12;
 }
 .body { padding: 12px 14px 14px; }
 .body h2 { margin: 0; font-size: 16px; font-weight: 600; }
@@ -63,7 +65,8 @@ a.trip:hover, a.trip:focus-visible { transform: translateY(-2px); outline-color:
 <main>
   {% for trip in trips %}
   <a class="trip" href="{{ trip.href }}">
-    <span class="cover"{% if trip.cover %} style="background-image:url('{{ trip.cover }}')"{% endif %}></span>
+    {% if trip.cover %}<img class="cover" src="{{ trip.cover }}" loading="lazy" decoding="async" alt="">
+    {% else %}<span class="cover"></span>{% endif %}
     <span class="body">
       <h2>{{ trip.title }}</h2>
       {% if trip.subtitle %}<p class="subtitle">{{ trip.subtitle }}</p>{% endif %}

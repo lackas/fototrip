@@ -53,6 +53,8 @@ def test_a_trip_carries_its_dates_count_and_cover(tmp_path):
     assert (trip.first_day, trip.last_day) == ("2024-05-01", "2024-05-09")
     assert (trip.photos, trip.days) == (137, 2)
     # relative to the overview page, which sits one level above the trip
+    # every photo in this fixture shares one thumb, so which index is picked is
+    # not what this test is about; test_the_cover_comes_from_the_middle_of_the_trip is
     assert trip.cover == "iceland/thumb/IMG_9.jpg"
     assert trip.href == "iceland/"
 
@@ -208,3 +210,69 @@ def test_the_index_command_says_so_when_it_found_nothing(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "no built trips" in result.output.lower()
+
+
+def test_the_cover_comes_from_the_middle_of_the_trip(tmp_path):
+    """Not the first photo.
+
+    Photos are ordered by capture time, so the first is whatever was shot on
+    the way out -- an airport, a boarding pass, the first meal. The middle of
+    the trip is where the trip actually is.
+    """
+    folder = tmp_path / "iceland"
+    folder.mkdir()
+    (folder / "photos.json").write_text(
+        json.dumps(
+            {
+                "title": "Iceland",
+                "photos": [{"id": f"IMG_{i}", "thumb": f"thumb/IMG_{i}.jpg"} for i in range(5)],
+                "days": [{"day": "2024-05-01", "count": 5}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    [trip] = find_trips(tmp_path)
+
+    assert trip.cover == "iceland/thumb/IMG_2.jpg"
+
+
+def test_the_cover_prefers_the_lightbox_image_over_the_thumbnail(tmp_path):
+    """Thumbnails are 96 px square; a card is several hundred wide."""
+    folder = tmp_path / "iceland"
+    folder.mkdir()
+    (folder / "photos.json").write_text(
+        json.dumps(
+            {
+                "title": "Iceland",
+                "photos": [{"id": "IMG_1", "thumb": "thumb/IMG_1.jpg", "web": "web/IMG_1.jpg"}],
+                "days": [{"day": "2024-05-01", "count": 1}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    [trip] = find_trips(tmp_path)
+
+    assert trip.cover == "iceland/web/IMG_1.jpg"
+
+
+def test_the_cover_is_lazily_loaded(tmp_path):
+    """An overview over many trips must not fetch every full-size image at once."""
+    trips = [
+        Trip(
+            title="Iceland",
+            href="iceland/",
+            cover="iceland/web/a.jpg",
+            first_day="2024-05-01",
+            last_day="2024-05-01",
+            photos=1,
+            days=1,
+            subtitle="",
+        ),
+    ]
+
+    render_overview(trips, tmp_path, title="Our trips")
+
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert 'loading="lazy"' in html
