@@ -296,3 +296,43 @@ def test_the_overview_stylesheet_is_refreshed_on_every_run(tmp_path):
     render_overview([], tmp_path, title="Our trips")
 
     assert "older version" not in (tmp_path / "overview.css").read_text(encoding="utf-8")
+
+
+def test_the_folder_can_carry_its_own_title(tmp_path):
+    """So a deploy does not have to repeat it on every run.
+
+    Mirrors trip.toml for a single trip: the file names it, the flag overrides.
+    """
+    from fototrip.overview import OverviewConfig
+
+    (tmp_path / "trips.toml").write_text(
+        'title = "Lackas Family Trips"\nsubtitle = "where we went"\n', encoding="utf-8"
+    )
+
+    config = OverviewConfig.load(tmp_path)
+
+    assert (config.title, config.subtitle) == ("Lackas Family Trips", "where we went")
+
+
+def test_the_flag_wins_over_the_file(tmp_path):
+    from fototrip.overview import OverviewConfig
+
+    (tmp_path / "trips.toml").write_text('title = "From the file"\n', encoding="utf-8")
+
+    assert OverviewConfig.load(tmp_path, title="From the flag").title == "From the flag"
+
+
+def test_without_a_file_the_title_is_the_folder_name(tmp_path):
+    from fototrip.overview import OverviewConfig
+
+    folder = tmp_path / "our-trips"
+    folder.mkdir()
+
+    assert OverviewConfig.load(folder).title == "our-trips"
+
+
+def test_the_subtitle_reaches_the_page(tmp_path):
+    render_overview([], tmp_path, title="Lackas Family Trips", subtitle="ten years of it")
+
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert "ten years of it" in html

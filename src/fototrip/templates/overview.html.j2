@@ -9,7 +9,8 @@
 <body>
 <header>
   <h1>{{ title }}</h1>
-  <p>{{ trips | length }} trip{{ "" if trips | length == 1 else "s" }}</p>
+  {% if subtitle %}<p class="subtitle">{{ subtitle }}</p>{% endif %}
+  <p class="count">{{ trips | length }} trip{{ "" if trips | length == 1 else "s" }}</p>
 </header>
 
 {% if trips %}
@@ -20,12 +21,12 @@
     {% else %}<span class="cover"></span>{% endif %}
     <span class="body">
       <h2>{{ trip.title }}</h2>
-      {% if trip.subtitle %}<p class="subtitle">{{ trip.subtitle }}</p>{% endif %}
-      <p class="meta">
-        {{ trip.first_day }}{% if trip.last_day != trip.first_day %} – {{ trip.last_day }}{% endif %}
-        · {{ trip.photos }} photo{{ "" if trip.photos == 1 else "s" }}
-        · {{ trip.days }} day{{ "" if trip.days == 1 else "s" }}
-      </p>
+      {% if trip.subtitle %}<span class="subtitle">{{ trip.subtitle }}</span>{% endif %}
+      <span class="meta">
+        <span class="dates">{{ trip.first_day }}{% if trip.last_day != trip.first_day %} – {{ trip.last_day }}{% endif %}</span>
+        <span class="count">{{ trip.photos }} photo{{ "" if trip.photos == 1 else "s" }}</span>
+        <span>{{ trip.days }} day{{ "" if trip.days == 1 else "s" }}</span>
+      </span>
     </span>
   </a>
   {% endfor %}

@@ -8,6 +8,7 @@ page linking into them, which is what this builds.
 
 import json
 import shutil
+import tomllib
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -15,6 +16,33 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 MANIFEST_NAME = "photos.json"
+
+
+@dataclass(frozen=True, slots=True)
+class OverviewConfig:
+    """What the overview page calls itself.
+
+    Mirrors TripConfig for a single trip: a `trips.toml` beside the trips names
+    the collection, a flag overrides it, and the folder name is the fallback --
+    so a deploy does not have to repeat the title on every run.
+    """
+
+    title: str
+    subtitle: str = ""
+
+    @classmethod
+    def load(cls, folder: Path, **overrides) -> "OverviewConfig":
+        values: dict = {"title": folder.name}
+        toml_path = folder / "trips.toml"
+        if toml_path.exists():
+            allowed = {f for f in cls.__dataclass_fields__}
+            try:
+                loaded = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                loaded = {}
+            values.update({k: v for k, v in loaded.items() if k in allowed})
+        values.update({k: v for k, v in overrides.items() if v is not None})
+        return cls(**values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,14 +115,14 @@ def find_trips(root: Path) -> list[Trip]:
     return sorted(trips, key=lambda t: (t.last_day, t.title), reverse=True)
 
 
-def render_overview(trips: list[Trip], out_dir: Path, *, title: str) -> None:
+def render_overview(trips: list[Trip], out_dir: Path, *, title: str, subtitle: str = "") -> None:
     """Write `index.html` listing `trips` into `out_dir`."""
     out_dir.mkdir(parents=True, exist_ok=True)
     env = Environment(
         loader=FileSystemLoader(Path(__file__).parent / "templates"),
         autoescape=select_autoescape(["html", "j2"]),
     )
-    html = env.get_template("overview.html.j2").render(title=title, trips=trips)
+    html = env.get_template("overview.html.j2").render(title=title, subtitle=subtitle, trips=trips)
     (out_dir / "index.html").write_text(html, encoding="utf-8")
     # Copied rather than inlined, so that serving this needs no
     # `style-src 'unsafe-inline'`. Overwritten every run: a stale stylesheet
