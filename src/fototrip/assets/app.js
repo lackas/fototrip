@@ -32,6 +32,9 @@ function addTileLayer(tiles) {
   L.tileLayer(source.url, {
     attribution: source.attribution || DEFAULT_TILES.attribution,
     maxZoom: 19,
+    // The site sends `Referrer-Policy: no-referrer`, but OpenStreetMap blocks
+    // browser tile requests without a Referer. The origin alone is enough.
+    referrerPolicy: "strict-origin",
   }).addTo(map);
 }
 

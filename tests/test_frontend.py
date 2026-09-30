@@ -1,6 +1,8 @@
 """Browser tests against a real built site."""
 
 import json
+import re
+from pathlib import Path
 
 
 def _ready(page, url):
@@ -347,12 +349,24 @@ def test_the_map_gets_its_tiles_from_the_manifest(page, site_url):
     page.wait_for_function("() => document.querySelectorAll('img.leaflet-tile').length > 0")
 
 
-STRICT_CSP = (
-    "default-src 'self'; "
-    "img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
-    "style-src 'self'; script-src 'self'; connect-src 'self'; "
-    "frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
-)
+CADDYFILE = Path(__file__).parent.parent / "deploy" / "Caddyfile.fototrip.lackas.net"
+
+
+def _deployed_csp() -> str:
+    """The policy out of the Caddy config, not a copy of it kept here.
+
+    A copy is what let this break in production: the test asserted a string in
+    this file, the server answered a different one, and the difference -- a
+    wildcard that does not cover the bare host -- blocked every tile. The
+    policy has exactly one home in this repo, and it is the file that gets
+    pasted into the server.
+    """
+    match = re.search(r'Content-Security-Policy "([^"]+)"', CADDYFILE.read_text())
+    assert match, f"no Content-Security-Policy found in {CADDYFILE}"
+    return match.group(1)
+
+
+STRICT_CSP = _deployed_csp()
 
 
 def test_the_page_works_under_the_content_security_policy_it_is_served_with(page, site_url):
@@ -361,13 +375,30 @@ def test_the_page_works_under_the_content_security_policy_it_is_served_with(page
     Every other browser test here runs with no policy at all, so none of them
     would notice an inline script or an inline style creeping back in -- the
     site would keep passing its tests and break the moment it was served.
+
+    Two things below look redundant and are not. The policy is read back off
+    the document response, because the first version of this test built its
+    route pattern from a URL that already ended in a slash, matched nothing,
+    and spent its whole life checking a page that was served no policy at all.
+    And the tiles are checked for naturalWidth rather than for existing: a
+    blocked image still leaves its <img> in the DOM, so counting elements
+    cannot tell a loaded tile from a refused one.
     """
     url, _ = site_url
     violations = []
+    policies = []
     page.on(
         "console",
         lambda m: (
             violations.append(m.text) if "content security policy" in m.text.lower() else None
+        ),
+    )
+    page.on(
+        "response",
+        lambda r: (
+            policies.append(r.headers.get("content-security-policy"))
+            if r.request.resource_type == "document"
+            else None
         ),
     )
 
@@ -377,12 +408,23 @@ def test_the_page_works_under_the_content_security_policy_it_is_served_with(page
         route.fulfill(response=response, headers=headers)
 
     # Same-origin only: a catch-all here would take precedence over the tile
-    # stub in conftest and send the requests to OpenStreetMap for real.
-    page.route(f"{url}/**", with_csp)
+    # stub in conftest and send the requests to OpenStreetMap for real. The
+    # rstrip matters -- site_url ends in a slash, and "{url}/**" produces a
+    # doubled slash that matches no request at all.
+    page.route(url.rstrip("/") + "/**", with_csp)
     _ready(page, url)
 
-    # the map got its tiles, so the manifest-borne configuration survived
-    page.wait_for_function("() => document.querySelectorAll('img.leaflet-tile').length > 0")
+    assert policies == [STRICT_CSP], f"the page was not served the policy under test: {policies}"
+
+    # The tiles arrived. Not "an <img> exists" -- a tile the policy refused
+    # leaves one of those behind too -- but "the browser has pixels for it",
+    # which is what the wildcard-only policy took away in production.
+    page.wait_for_function(
+        """() => {
+             const tiles = [...document.querySelectorAll('img.leaflet-tile')];
+             return tiles.length > 0 && tiles.every((t) => t.complete && t.naturalWidth > 0);
+           }"""
+    )
     # and the lightbox still opens, which is where PhotoSwipe styles the DOM
     page.evaluate("() => window.fototrip.openLightboxAt(0)")
     page.wait_for_selector(".pswp", state="visible")
@@ -393,4 +435,48 @@ def test_the_page_works_under_the_content_security_policy_it_is_served_with(page
     # Routes left in flight outlive this test and break the setup of whichever
     # test the fixture hands the next page to -- which looked like an unrelated
     # failure in another file.
+    page.unroute_all(behavior="ignoreErrors")
+
+
+def _deployed_referrer_policy() -> str:
+    match = re.search(r'Referrer-Policy "([^"]+)"', CADDYFILE.read_text())
+    assert match, f"no Referrer-Policy found in {CADDYFILE}"
+    return match.group(1)
+
+
+def test_tile_requests_carry_a_referer_under_the_deployed_referrer_policy(page, site_url):
+    """OpenStreetMap's tile policy requires a Referer from browser apps, and
+    without one real Chrome gets the yellow-and-black "Access blocked" tile.
+
+    The site serves `Referrer-Policy: no-referrer` on purpose, so photo URLs do
+    not leak anywhere; the tile layer has to override that for its own images.
+    Headless Chromium was let through without a Referer, which is why the live
+    check came back green while the browser that mattered saw 403s.
+    """
+    url, _ = site_url
+    referers = []
+
+    def with_policy(route):
+        response = route.fetch()
+        headers = {**response.headers, "referrer-policy": _deployed_referrer_policy()}
+        route.fulfill(response=response, headers=headers)
+
+    page.on(
+        "request",
+        lambda r: (
+            referers.append(r.all_headers().get("referer", ""))
+            if "tile.openstreetmap.org" in r.url
+            else None
+        ),
+    )
+    page.route(url.rstrip("/") + "/**", with_policy)
+    _ready(page, url)
+    page.wait_for_function("() => document.querySelectorAll('img.leaflet-tile').length > 0")
+
+    origin = url.split("/", 3)[:3]
+    assert referers, "no tile was requested"
+    # Only the origin -- the page path names the trip and has no business
+    # travelling to a third party.
+    assert set(referers) == {"/".join(origin) + "/"}, referers
+
     page.unroute_all(behavior="ignoreErrors")

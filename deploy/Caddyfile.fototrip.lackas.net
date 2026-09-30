@@ -1,6 +1,12 @@
 # Block for the single global Caddyfile on server.lackas.net,
 # /var/www/caddy/conf/Caddyfile. Not imported from here -- this file is the
-# documented copy, matching the convention used by the other projects.
+# documented copy of what is live, and the two drifting apart has already
+# broken the site once (see the Content-Security-Policy comment below), so
+# deploy.sh now compares the policy here against the one the server answers
+# with and refuses to finish if they differ.
+#
+# Two values are redacted and must be filled in on the server: the bcrypt hash
+# and the home IP. Neither belongs in a public repository.
 #
 # After editing the live file:
 #   /var/www/caddy/reformat.sh && /var/www/caddy/reload.sh
@@ -9,64 +15,114 @@
 # Caddy obtains a per-host certificate on the first request.
 
 fototrip.lackas.net {
-	root * /srv/fototrips
-	import access_log
+	root * /srv/fototrip
 
-	# Cost 4, not the 14 the other hosts on this server use, and that is a
-	# decision rather than an oversight. This is a screen against search engines
-	# and idle URL-guessing, not protection from someone who has the server:
-	# whoever can read this hash can read the JPEGs beside it.
-	#
-	# Measured here: cost 4 = 1.0 ms per verification, cost 11 = 105 ms, cost
-	# 14 = 830 ms. One gallery page issues over a hundred image requests, each
-	# carrying the credentials -- a tenth of a second of CPU against eighty.
-	#
-	# What it does cost: a cost-4 hash falls to an offline attack in minutes, so
-	# the password here must be one used nowhere else.
-	#
-	#   docker exec -it caddy caddy hash-password --bcrypt-cost 4
-	basic_auth {
+	# The home network and the tailnet get in without a password; in Apache
+	# this would be `Satisfy Any`. Caddy has no such switch, but every
+	# directive takes a matcher, so basic_auth applies only to what does NOT
+	# come from these networks. The home address is dynamic: if it changes,
+	# the password prompt comes back here -- nobody gets locked out.
+	# 100.64.0.0/10 is the Tailscale CGNAT range, and it only has an effect
+	# when the request really arrives over the tailnet.
+	@needs_auth not remote_ip REPLACE_WITH_HOME_IP/32 100.64.0.0/10
+	basic_auth @needs_auth {
+		# Cost 4, not the 14 the other hosts on this server use, and that is a
+		# decision rather than an oversight. This is a screen against search
+		# engines and idle URL-guessing, not protection from someone who has
+		# the server: whoever can read this hash can read the JPEGs beside it.
+		#
+		# Measured here: cost 4 = 1.0 ms per verification, cost 11 = 105 ms,
+		# cost 14 = 830 ms. One gallery page issues over a hundred image
+		# requests, each carrying the credentials -- a tenth of a second of
+		# CPU against eighty.
+		#
+		# What it does cost: a cost-4 hash falls to an offline attack in
+		# minutes, so the password here must be one used nowhere else.
+		#
+		#   docker exec -it caddy caddy hash-password --bcrypt-cost 4
 		fototrip REPLACE_WITH_BCRYPT_HASH
+		lackas REPLACE_WITH_BCRYPT_HASH
 	}
 
-	# JPEGs are already compressed; only the text is worth the CPU. photos.json
-	# is the one that matters -- half a megabyte of it per trip.
-	encode {
-		zstd
-		gzip
+	# Only text is worth the CPU -- JPEG/PNG/WebP are already compressed.
+	# photos.json is the one that matters: half a megabyte of it per trip.
+	encode zstd gzip {
 		match {
 			header Content-Type text/*
 			header Content-Type application/javascript*
 			header Content-Type application/json*
+			header Content-Type image/svg+xml*
 		}
 	}
 
 	header {
-		Strict-Transport-Security "max-age=31536000;"
-		X-Content-Type-Options nosniff
-		Referrer-Policy no-referrer
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Robots-Tag "noindex, nofollow"
 		-Server
+
+		# Checked against the real page content rather than guessed: no inline
+		# script, no inline style, no on*= handlers, no style= attributes,
+		# CSS/JS/fetch all same-origin. Hence strict, without any
+		# 'unsafe-inline'. Leaflet's and PhotoSwipe's styling goes through the
+		# CSSOM, which style-src does not cover.
+		#
+		# The one third-party source is the map tiles, and the tile URL is
+		# *data* in photos.json -- if it ever leaves these two hosts, the map
+		# breaks here and not in the generator.
+		#
+		# Both the bare domain AND the subdomains: a CSP wildcard does NOT
+		# cover `tile.openstreetmap.org`, only `a.tile.openstreetmap.org`,
+		# because `*.` requires at least one label in front of it. Once the
+		# deprecated {s} subdomains came out of the tile URL the tiles started
+		# arriving from the bare domain, and a policy listing only the
+		# wildcard killed the map on 2026-09-30: eighteen CSP refusals and not
+		# one request reaching OpenStreetMap.
+		#
+		# data: covers Leaflet's placeholder while tiles load.
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'"
 	}
 
-	# Strict: no 'unsafe-inline' anywhere. The pages have no inline script and
-	# no inline style -- the tile configuration travels in photos.json and the
-	# overview has its own overview.css, both for this reason. A browser test
-	# in the repo loads the real page with exactly this policy enforced and
-	# fails if either creeps back in.
-	#
-	# The one third-party source is the map tiles. `data:` for images because
-	# Leaflet uses a data URI placeholder while tiles load.
-	header Content-Security-Policy "default-src 'self'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
+	# The four cache rules below are deliberately mutually exclusive, so that
+	# none of them depends on which order Caddy applies same-name directives
+	# in. Leaflet's marker-icon.png would otherwise match both @vendor and
+	# @media, and the answer would rest on an assumption about Caddy's
+	# internals rather than on what is written here.
 
-	# The vendored libraries are pinned by version and never change under the
-	# same path, so they can be cached hard.
+	# The vendored libraries carry a version in their path and never change
+	# under the same path, so they can be cached hard.
 	@vendor path */vendor/*
 	header @vendor Cache-Control "public, max-age=31536000, immutable"
 
-	# Derivatives keep their filename across a rebuild, so a long max-age would
-	# serve yesterday's photo under today's name. An hour is a compromise.
-	@derivatives path */thumb/* */web/*
-	header @derivatives Cache-Control "public, max-age=3600"
+	# Photos keep their filename across a rebuild while the content can change
+	# (a fresh export, a different --web-px). A week would mean a corrected
+	# photo stays wrong for a week. One day: a rebuild heals itself, and
+	# revisits on the same day still cost nothing. Caching these for a year
+	# needs a content hash in the filename first.
+	@media {
+		not path */vendor/*
+		path *.jpg *.jpeg *.png *.webp *.avif *.gif *.mp4 *.mov
+	}
+	header @media Cache-Control "public, max-age=86400"
+
+	# Everything a build rewrites has to be revalidated. With an ETag that
+	# costs a 304, not half a megabyte of photos.json. Without this rule Caddy
+	# sends no Cache-Control at all and the browser invents a lifetime of its
+	# own -- and then a deploy can stay invisible.
+	@build {
+		not path */vendor/*
+		path *.json *.js *.css
+	}
+	header @build Cache-Control "no-cache"
+
+	# HTML is never cached, so a new deploy shows up at once. The `*/` catches
+	# the directory indexes (`/`, `/argentina-2026/`), which are served as
+	# index.html and do not end in *.html.
+	@html path *.html */
+	header @html Cache-Control "no-cache"
 
 	file_server
+
+	import access_log
 }
