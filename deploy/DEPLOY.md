@@ -37,6 +37,12 @@ so every host it serves is briefly down. A symlink out of `sites/` is not an
 alternative: the target would be outside the mount and unresolvable inside the
 container.
 
+`/var/www/caddy/sites/` is itself mounted as `/srv`, so the directory
+`sites/fototrip` **is** the mountpoint `/srv/fototrip`. It must stay, even
+though it looks like an empty leftover: removing it drops the nested mount out
+of the container's namespace and every URL answers 404 while the files sit
+untouched on the host. `docker restart caddy` puts it back.
+
 **3. The password.**
 
 ```bash

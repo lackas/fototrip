@@ -383,3 +383,8 @@ def test_the_page_works_under_the_content_security_policy_it_is_served_with(page
     assert page.locator(".pswp__img").first.is_visible()
 
     assert violations == [], violations
+
+    # Routes left in flight outlive this test and break the setup of whichever
+    # test the fixture hands the next page to -- which looked like an unrelated
+    # failure in another file.
+    page.unroute_all(behavior="ignoreErrors")
