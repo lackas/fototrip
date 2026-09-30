@@ -16,11 +16,25 @@ const state = {
 
 const map = L.map("map", { zoomControl: true, worldCopyJump: false });
 
-L.tileLayer(window.FOTOTRIP_TILES.url, {
-  attribution: window.FOTOTRIP_TILES.attribution,
-  maxZoom: 19,
-  subdomains: "abc",
-}).addTo(map);
+/* Where the tiles come from travels in photos.json, not in an inline script in
+ * the page: an inline script is the one thing that would force
+ * `script-src 'unsafe-inline'` on whatever serves this. The layer is therefore
+ * added in boot(), once the manifest has arrived. */
+const DEFAULT_TILES = {
+  url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  attribution:
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+};
+
+function addTileLayer(tiles) {
+  // A site built before the manifest carried this still gets a map.
+  const source = tiles && tiles.url ? tiles : DEFAULT_TILES;
+  L.tileLayer(source.url, {
+    attribution: source.attribution || DEFAULT_TILES.attribution,
+    maxZoom: 19,
+    subdomains: "abc",
+  }).addTo(map);
+}
 
 /* Photo id -> its marker, rebuilt alongside the cluster group below.
  * Closing the lightbox needs the marker itself, not just the coordinates:
@@ -232,6 +246,7 @@ async function boot() {
     }
     return;
   }
+  addTileLayer(manifest.tiles);
   state.photos = manifest.photos;
   state.days = manifest.days;
   state.bounds = manifest.bounds;
@@ -327,7 +342,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.fototrip = {
-  state, map, clusterGroup, lightbox, markers,
+  state, map, clusterGroup, lightbox, markers, addTileLayer,
   setVisible, openLightboxAt, fitTo, selectDay, stepDay, renderTimeline, revealOnMap,
 };
 

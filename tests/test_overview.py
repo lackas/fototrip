@@ -276,3 +276,23 @@ def test_the_cover_is_lazily_loaded(tmp_path):
 
     html = (tmp_path / "index.html").read_text(encoding="utf-8")
     assert 'loading="lazy"' in html
+
+
+def test_the_overview_carries_no_inline_style(tmp_path):
+    """Its stylesheet is a file, so `style-src 'self'` suffices."""
+    render_overview([], tmp_path, title="Our trips")
+
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert "<style" not in html
+    assert "style=" not in html
+    assert 'href="overview.css"' in html
+    assert (tmp_path / "overview.css").exists()
+
+
+def test_the_overview_stylesheet_is_refreshed_on_every_run(tmp_path):
+    """A stale stylesheet beside a new page is a confusing way to fail."""
+    (tmp_path / "overview.css").write_text("/* from an older version */", encoding="utf-8")
+
+    render_overview([], tmp_path, title="Our trips")
+
+    assert "older version" not in (tmp_path / "overview.css").read_text(encoding="utf-8")
