@@ -61,8 +61,13 @@ def render_site(manifest: dict, config: TripConfig, out_dir: Path) -> None:
         tile_attribution=config.tile_attribution,
     )
     (out_dir / "index.html").write_text(html, encoding="utf-8")
+
+    # The trip's name travels in the manifest as well as in the page, so that an
+    # overview over several built trips can read it without parsing HTML. A copy,
+    # because the caller's dict is not ours to grow.
+    payload = {"title": config.title, "subtitle": config.subtitle, **manifest}
     (out_dir / "photos.json").write_text(
-        json.dumps(manifest, separators=(",", ":")), encoding="utf-8"
+        json.dumps(payload, separators=(",", ":")), encoding="utf-8"
     )
 
     assets = _package_dir("assets")

@@ -43,6 +43,12 @@ lightbox image), `--no-geocode` and `--places-cache`. `serve` takes
 Copy `site/` anywhere that serves files. `site/.fototrip-cache.json` is build
 metadata and does not need to go with it.
 
+With several trips under one folder, `fototrip index <folder>` writes an
+overview page listing and linking to each of them. The trips reference
+everything relatively, so a web server pointed at the folder serves the
+overview and the trips together, with no configuration and nothing running.
+[deploy/](deploy/) has a worked example with Caddy.
+
 Builds are incremental, so re-running after adding photos only processes what
 changed. Changing `--thumb-px` or `--web-px` rebuilds every derivative.
 

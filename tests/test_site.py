@@ -35,7 +35,11 @@ def test_writes_index_manifest_and_assets(tmp_path):
 
 def test_manifest_round_trips_as_json(tmp_path):
     render_site(MANIFEST, TripConfig(title="Argentina"), tmp_path)
-    assert json.loads((tmp_path / "photos.json").read_text()) == MANIFEST
+    written = json.loads((tmp_path / "photos.json").read_text())
+    # Every key the manifest went in with, unchanged -- plus the trip's name,
+    # which render_site adds on the way out.
+    assert {k: written[k] for k in MANIFEST} == MANIFEST
+    assert written["title"] == "Argentina"
 
 
 def test_title_appears_in_the_page(tmp_path):
@@ -116,3 +120,22 @@ def test_rerender_removes_stale_vendor_files(tmp_path):
 
     assert not orphan.exists()
     assert (tmp_path / "vendor" / "leaflet" / "leaflet.js").exists()
+
+
+def test_the_manifest_carries_the_trip_title(tmp_path):
+    """An overview page over several built trips needs their names.
+
+    The title lives in the rendered HTML, which is awkward to read back;
+    photos.json is the file every consumer already parses.
+    """
+    render_site(MANIFEST, TripConfig(title="Iceland", subtitle="ring road"), tmp_path)
+    written = json.loads((tmp_path / "photos.json").read_text())
+    assert written["title"] == "Iceland"
+    assert written["subtitle"] == "ring road"
+
+
+def test_rendering_does_not_mutate_the_caller_s_manifest(tmp_path):
+    """render_site adds to the payload it writes, not to the dict it was given."""
+    manifest = {"photos": [], "days": [], "bounds": None}
+    render_site(manifest, TripConfig(title="Iceland"), tmp_path)
+    assert "title" not in manifest
