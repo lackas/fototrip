@@ -349,7 +349,7 @@ def test_the_map_gets_its_tiles_from_the_manifest(page, site_url):
 
 STRICT_CSP = (
     "default-src 'self'; "
-    "img-src 'self' data: https://*.tile.openstreetmap.org; "
+    "img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
     "style-src 'self'; script-src 'self'; connect-src 'self'; "
     "frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
 )
@@ -376,7 +376,9 @@ def test_the_page_works_under_the_content_security_policy_it_is_served_with(page
         headers = {**response.headers, "content-security-policy": STRICT_CSP}
         route.fulfill(response=response, headers=headers)
 
-    page.route("**/*", with_csp)
+    # Same-origin only: a catch-all here would take precedence over the tile
+    # stub in conftest and send the requests to OpenStreetMap for real.
+    page.route(f"{url}/**", with_csp)
     _ready(page, url)
 
     # the map got its tiles, so the manifest-borne configuration survived
