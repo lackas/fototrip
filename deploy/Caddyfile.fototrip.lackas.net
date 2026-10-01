@@ -1,51 +1,68 @@
-# Block for the single global Caddyfile on server.lackas.net,
-# /var/www/caddy/conf/Caddyfile. Not imported from here -- this file is the
-# documented copy of what is live, and the two drifting apart has already
-# broken the site once (see the Content-Security-Policy comment below), so
-# deploy.sh now compares the policy here against the one the server answers
-# with and refuses to finish if they differ.
+# Vorlage, KEINE Live-Konfiguration. Dieses Repo ist oeffentlich, daher
+# stehen hier Platzhalter statt Geheimnissen. Die echten Werte stehen
+# ausschliesslich in /var/www/caddy/conf/Caddyfile auf server.lackas.net:
+#   BCRYPT_HASH_SIEHE_SERVER   -> docker exec -it caddy caddy hash-password --bcrypt-cost 4
+#   UNLOCK_PATH_SIEHE_SERVER   -> openssl rand -hex 32
+#   COOKIE_WERT_SIEHE_SERVER   -> openssl rand -hex 32
+#   HOME_IP                    -> die eigene oeffentliche Adresse
+# Der Mechanismus darf oeffentlich dokumentiert sein, die Werte nicht.
 #
-# Two values are redacted and must be filled in on the server: the bcrypt hash
-# and the home IP. Neither belongs in a public repository.
-#
-# After editing the live file:
-#   /var/www/caddy/reformat.sh && /var/www/caddy/reload.sh
-#
-# No tls directive on purpose: *.lackas.net resolves via wildcard DNS and
-# Caddy obtains a per-host certificate on the first request.
-
+# Fototrip — gebaute Reiseseiten, rein statisch (kein Prozess, kein Backend).
+# Payload liegt auf /home (dort sind die TBs), read-only ins Container gemountet
+# als /srv/fototrip; je Reise ein Unterverzeichnis, Uebersicht als index.html.
+# Privat: Basic Auth, aber nur als Sichtschutz gegen Suchmaschinen und
+# Zufallsfunde — kein Schutz gegen einen Angreifer, der den Server hat, denn
+# der kaeme sowieso direkt an die Bilder. Daher bewusst **bcrypt-Cost 4** statt
+# der hier sonst ueblichen 14: gemessen auf dieser Maschine 1,0 ms je
+# Verifikation gegen 830 ms bei Cost 14, und eine Galerie loest >100
+# Bild-Requests pro Aufruf aus (Cost 14 = >80 s CPU je Seitenaufruf).
+# Bitte nicht "haerten" — die Sicherheit steckt hier im Passwort (14 Zeichen
+# zufaellig, nicht anderweitig verwendet), nicht im Kostenfaktor.
 fototrip.lackas.net {
 	root * /srv/fototrip
 
-	# The home network and the tailnet get in without a password; in Apache
-	# this would be `Satisfy Any`. Caddy has no such switch, but every
-	# directive takes a matcher, so basic_auth applies only to what does NOT
-	# come from these networks. The home address is dynamic: if it changes,
-	# the password prompt comes back here -- nobody gets locked out.
-	# 100.64.0.0/10 is the Tailscale CGNAT range, and it only has an effect
-	# when the request really arrives over the tailnet.
-	@needs_auth not remote_ip REPLACE_WITH_HOME_IP/32 100.64.0.0/10
-	basic_auth @needs_auth {
-		# Cost 4, not the 14 the other hosts on this server use, and that is a
-		# decision rather than an oversight. This is a screen against search
-		# engines and idle URL-guessing, not protection from someone who has
-		# the server: whoever can read this hash can read the JPEGs beside it.
-		#
-		# Measured here: cost 4 = 1.0 ms per verification, cost 11 = 105 ms,
-		# cost 14 = 830 ms. One gallery page issues over a hundred image
-		# requests, each carrying the credentials -- a tenth of a second of
-		# CPU against eighty.
-		#
-		# What it does cost: a cost-4 hash falls to an offline attack in
-		# minutes, so the password here must be one used nowhere else.
-		#
-		#   docker exec -it caddy caddy hash-password --bcrypt-cost 4
-		fototrip REPLACE_WITH_BCRYPT_HASH
-		lackas REPLACE_WITH_BCRYPT_HASH
+	# Heimnetz und Tailnet duerfen ohne Passwort rein (in Apache waere das
+	# `Satisfy Any`). Caddy kennt keinen solchen Schalter, aber jede Direktive
+	# nimmt einen Matcher — also greift basic_auth nur fuer alles, was NICHT
+	# aus diesen Netzen kommt. HOME_IP ist die Hausadresse (dynamisch:
+	# aendert sie sich, kommt hier wieder die Passwortabfrage, kein Aussperren),
+	# 100.64.0.0/10 ist der Tailscale-CGNAT-Bereich. Letzteres wirkt nur, wenn
+	# die Anfrage wirklich ueber das Tailnet eintrifft, siehe Doku.
+
+	# Einmal-Link fuer die Familie. Hintergrund: Browser bieten
+	# Basic-Auth-Zugangsdaten nicht im Passwortmanager an, also fragt das
+	# Formular bei jedem Besuch neu — fuer Angehoerige unbrauchbar. Wer
+	# /unlock/<geheimnis> einmal aufruft, bekommt ein Cookie und wird danach
+	# nicht mehr gefragt. Rein statisch: Caddy setzt das Cookie und matcht
+	# darauf, kein Prozess, kein Backend. Pfad und Cookie sind je 64
+	# Hex-Zeichen (256 Bit) — nicht lesbar, nicht merkbar, man muss den
+	# vollstaendigen Link bekommen haben. Widerrufen = Cookie-Wert hier
+	# aendern, dann sind alle verteilten Links sofort wertlos.
+	# Max-Age sind 400 Tage: mehr setzen Chrome und Edge ohnehin auf 400
+	# herunter, das ist also das praktische Maximum (gewuenscht war >= 1 Jahr).
+	@unlock path /unlock/UNLOCK_PATH_SIEHE_SERVER
+	handle @unlock {
+		header Set-Cookie "ft_auth=COOKIE_WERT_SIEHE_SERVER; Path=/; Max-Age=34560000; Secure; HttpOnly; SameSite=Lax"
+		# Wildcard-Matcher ist Pflicht: `redir / 302` wuerde das `/` als
+		# Matcher lesen und "302" als Ziel setzen (Location: 302, Ergebnis 404).
+		redir * / 302
 	}
 
-	# Only text is worth the CPU -- JPEG/PNG/WebP are already compressed.
-	# photos.json is the one that matters: half a megabyte of it per trip.
+	# Passwort nur verlangen, wenn weder IP noch Cookie passen. Die drei
+	# Bedingungen sind UND-verknuepft. Der unlock-Pfad muss ausgenommen sein,
+	# sonst braeuchte man das Passwort, um ueberhaupt an das Cookie zu kommen.
+	@needs_auth {
+		not remote_ip HOME_IP/32 100.64.0.0/10
+		not header Cookie *ft_auth=COOKIE_WERT_SIEHE_SERVER*
+		not path /unlock/*
+	}
+	basic_auth @needs_auth {
+		fototrip BCRYPT_HASH_SIEHE_SERVER
+		lackas BCRYPT_HASH_SIEHE_SERVER
+	}
+
+	# Nur Text komprimieren — JPEG/PNG/WebP sind schon komprimiert, da kostet
+	# encode nur CPU.
 	encode zstd gzip {
 		match {
 			header Content-Type text/*
@@ -62,63 +79,63 @@ fototrip.lackas.net {
 		X-Robots-Tag "noindex, nofollow"
 		-Server
 
-		# Checked against the real page content rather than guessed: no inline
-		# script, no inline style, no on*= handlers, no style= attributes,
-		# CSS/JS/fetch all same-origin. Hence strict, without any
-		# 'unsafe-inline'. Leaflet's and PhotoSwipe's styling goes through the
-		# CSSOM, which style-src does not cover.
+		# Gegen den echten Seiteninhalt geprueft (nicht geschaetzt): kein
+		# Inline-Script, kein Inline-Style, keine on*=-Handler, keine
+		# style=-Attribute; CSS/JS/fetch alles same-origin. Daher strikt, ohne
+		# jedes 'unsafe-inline' — fototrip hat die zwei Inline-Bloecke am
+		# 30.09.2026 aufgeloest (Tile-Config wandert in photos.json, Uebersicht
+		# bekam overview.css) und testet die Richtlinie im Browser erzwungen.
+		# Einzige Drittquelle sind die Kartenkacheln. Die Tile-URL ist jetzt
+		# *Daten* in photos.json — verlaesst sie die hier gelisteten Hosts,
+		# bricht die Karte hier und nicht im Generator.
 		#
-		# The one third-party source is the map tiles, and the tile URL is
-		# *data* in photos.json -- if it ever leaves these two hosts, the map
-		# breaks here and not in the generator.
+		# Die nackte Domain UND die Subdomains. Ein CSP-Wildcard deckt
+		# `tile.openstreetmap.org` NICHT ab, nur `a.tile.openstreetmap.org`:
+		# `*.` verlangt mindestens ein Label davor. Seit die veralteten
+		# {s}-Subdomains aus der Tile-URL raus sind, kommen die Kacheln von
+		# der nackten Domain. Daran ist die Karte am 30.09.2026 gestorben,
+		# mit 18 CSP-Blocks und keinem einzigen Request bei OSM.
 		#
-		# Both the bare domain AND the subdomains: a CSP wildcard does NOT
-		# cover `tile.openstreetmap.org`, only `a.tile.openstreetmap.org`,
-		# because `*.` requires at least one label in front of it. Once the
-		# deprecated {s} subdomains came out of the tile URL the tiles started
-		# arriving from the bare domain, and a policy listing only the
-		# wildcard killed the map on 2026-09-30: eighteen CSP refusals and not
-		# one request reaching OpenStreetMap.
-		#
-		# data: covers Leaflet's placeholder while tiles load.
+		# data: deckt Leaflets Zoom-Platzhalter. Stile von Leaflet/PhotoSwipe laufen per CSSOM, das
+		# faellt nicht unter style-src.
 		Content-Security-Policy "default-src 'self'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://server.arcgisonline.com; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'"
 	}
 
-	# The four cache rules below are deliberately mutually exclusive, so that
-	# none of them depends on which order Caddy applies same-name directives
-	# in. Leaflet's marker-icon.png would otherwise match both @vendor and
-	# @media, and the answer would rest on an assumption about Caddy's
-	# internals rather than on what is written here.
+	# Die vier Regeln sind absichtlich gegenseitig exklusiv, damit keine von ihnen
+	# davon abhaengt, in welcher Reihenfolge Caddy gleichnamige Direktiven
+	# anwendet. Leaflets marker-icon.png passt sonst auf @vendor UND @media,
+	# und die Antwort haengt an einer Annahme ueber Caddys Innenleben statt an
+	# dem, was hier steht.
 
-	# The vendored libraries carry a version in their path and never change
-	# under the same path, so they can be cached hard.
+	# Die mitgelieferten Bibliotheken haengen an einer Version im Pfad und
+	# aendern sich unter demselben Pfad nie.
 	@vendor path */vendor/*
 	header @vendor Cache-Control "public, max-age=31536000, immutable"
 
-	# Photos keep their filename across a rebuild while the content can change
-	# (a fresh export, a different --web-px). A week would mean a corrected
-	# photo stays wrong for a week. One day: a rebuild heals itself, and
-	# revisits on the same day still cost nothing. Caching these for a year
-	# needs a content hash in the filename first.
+	# Fotos behalten ihren Dateinamen ueber einen Rebuild, der Inhalt kann
+	# sich aendern (neuer Export, anderes --web-px). Eine Woche hiesse: ein
+	# korrigiertes Foto wird eine Woche lang falsch ausgeliefert. Ein Tag —
+	# ein Rebuild heilt sich selbst, Wiederbesuche am selben Tag bleiben
+	# gratis. Dauerhaft cachen geht erst mit Inhalts-Hash im Dateinamen.
 	@media {
 		not path */vendor/*
 		path *.jpg *.jpeg *.png *.webp *.avif *.gif *.mp4 *.mov
 	}
 	header @media Cache-Control "public, max-age=86400"
 
-	# Everything a build rewrites has to be revalidated. With an ETag that
-	# costs a 304, not half a megabyte of photos.json. Without this rule Caddy
-	# sends no Cache-Control at all and the browser invents a lifetime of its
-	# own -- and then a deploy can stay invisible.
+	# Alles, was ein Build neu schreibt, muss revalidiert werden. Mit ETag
+	# kostet das einen 304 und nicht die halbe Megabyte photos.json. Ohne die
+	# Regel schickt Caddy gar kein Cache-Control, der Browser raet sich eine
+	# Frist zusammen, und ein Deploy kann unsichtbar bleiben.
 	@build {
 		not path */vendor/*
 		path *.json *.js *.css
 	}
 	header @build Cache-Control "no-cache"
 
-	# HTML is never cached, so a new deploy shows up at once. The `*/` catches
-	# the directory indexes (`/`, `/argentina-2026/`), which are served as
-	# index.html and do not end in *.html.
+	# HTML nie cachen, damit ein neuer Deploy sofort sichtbar ist. Das `*/`
+	# erfasst die Verzeichnis-Indizes (`/`, `/argentina-2026/`) mit, die als
+	# index.html ausgeliefert werden und nicht auf *.html enden.
 	@html path *.html */
 	header @html Cache-Control "no-cache"
 

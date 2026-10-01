@@ -62,8 +62,12 @@ The trade is real, though: a cost-4 hash falls to an offline attack in minutes.
 **Use a password you use nowhere else.**
 
 **4. The Caddy block.** Paste `Caddyfile.fototrip.lackas.net` from this
-directory into `/var/www/caddy/conf/Caddyfile`, with the hash from step 3 in
-place of `REPLACE_WITH_BCRYPT_HASH`, then:
+directory into `/var/www/caddy/conf/Caddyfile` and replace its four
+placeholders, which the comment at its top explains: the hash from step 3 for
+`BCRYPT_HASH_SIEHE_SERVER`, the house address for `HOME_IP`, and two separate
+`openssl rand -hex 32` values for `UNLOCK_PATH_SIEHE_SERVER` and
+`COOKIE_WERT_SIEHE_SERVER`. The real values exist only on the server; this
+repository is public. Then:
 
 ```bash
 /var/www/caddy/reformat.sh && /var/www/caddy/reload.sh
