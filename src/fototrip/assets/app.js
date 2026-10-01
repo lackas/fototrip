@@ -17,6 +17,12 @@ const state = {
 
 const map = L.map("map", { zoomControl: true, worldCopyJump: false });
 
+/* Leaflet measures its container once and afterwards only on window resize.
+ * The header's status line is filled later and makes the map shorter, and on
+ * a phone the browser's toolbars come and go; every such change has to reach
+ * Leaflet, or "centre on this photo" centres on a box that no longer exists. */
+new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById("map"));
+
 /* Where the tiles come from travels in photos.json, not in an inline script in
  * the page: an inline script is the one thing that would force
  * `script-src 'unsafe-inline'` on whatever serves this. The layer is therefore

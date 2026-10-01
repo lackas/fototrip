@@ -549,3 +549,22 @@ def test_the_small_map_sits_in_the_bottom_left_corner(page, site_url):
     assert box["x"] < 40, box
     assert box["y"] > viewport["height"] / 2, box
     assert box["y"] + box["height"] <= viewport["height"], box
+
+
+def test_leaflet_knows_the_real_size_of_the_map(page, site_url):
+    """Leaflet measures its container once and then only on window resize.
+    The status line in the header is filled after that, which made the map
+    18 px shorter than Leaflet believed, so every "centre on this photo" landed
+    9 px low. Any later change in the container's size has to reach it too."""
+    url, _ = site_url
+    _ready(page, url)
+    same = """() => { const s = window.fototrip.map.getSize(), m = document.getElementById('map');
+                     return s.x === m.clientWidth && s.y === m.clientHeight; }"""
+    page.wait_for_function(same)
+
+    # A change the window does not report: the header growing by a line.
+    page.evaluate(
+        "() => { document.getElementById('status').textContent += ' \\n'; "
+        "document.getElementById('trip-header').style.paddingBottom = '60px'; }"
+    )
+    page.wait_for_function(same)
