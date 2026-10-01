@@ -278,3 +278,69 @@ def test_label_collapses_stray_whitespace_from_osm_data():
     """Real OSM names contain double spaces, e.g. 'Bº  El Pilar' in Salta."""
     address = {"suburb": "Bº  El Pilar", "city": "Salta", "country": "Argentinien"}
     assert label_from_address(address) == "Bº El Pilar, Salta, Argentinien"
+
+
+# ---- names in scripts a reader here cannot read -------------------------
+
+# Real Nominatim data for Kolonaki in Athens, asked with accept-language=de,en.
+ATHENS_ADDRESS = {
+    "road": "Τσακάλωφ",
+    "neighbourhood": "Συνοικία Κολωνακίου",
+    "quarter": "Kolonaki",
+    "city_district": "1st District of Athens",
+    "city": "Athen",
+    "country": "Griechenland",
+}
+
+
+def test_a_name_in_another_script_gives_way_to_the_next_one_at_that_scale():
+    assert label_from_address(ATHENS_ADDRESS) == "Kolonaki, Athen, Griechenland"
+
+
+def test_a_scale_with_no_readable_name_is_left_out():
+    address = {"suburb": "ตำบลเกาะเต่า", "county": "อำเภอเกาะพะงัน", "country": "Thailand"}
+    assert label_from_address(address) == "Thailand"
+
+
+def test_accents_and_other_latin_letters_are_kept():
+    address = {"suburb": "Bº El Pilar", "city": "Kraków", "country": "Polska"}
+    assert label_from_address(address) == "Bº El Pilar, Kraków, Polska"
+
+
+def test_nominatim_is_asked_for_german_then_english(monkeypatch):
+    """English fills the gaps German leaves: Κολωνάκι comes back as Kolonaki."""
+    from fototrip import places
+
+    asked = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b'{"address": {}}'
+
+    def urlopen(request, timeout):
+        asked.append(request.full_url)
+        return Response()
+
+    monkeypatch.setattr(places.urllib.request, "urlopen", urlopen)
+    places.fetch_address(37.9779, 23.7405)
+    assert "accept-language=de%2Cen" in asked[0]
+
+
+def test_a_cached_label_in_another_script_is_looked_up_again(tmp_path):
+    """Labels cached before names in other scripts were filtered out would
+    otherwise stay Greek and Thai forever."""
+    path = tmp_path / "places.json"
+    cache = PlaceCache(path)
+    cache.put(37.9779, 23.7405, "Συνοικία Κολωνακίου, Athen, Griechenland")
+    cache.put(-25.6858, -54.4435, "Cataratas del Iguazú, Puerto Iguazú, Argentinien")
+    cache.save()
+
+    reloaded = PlaceCache(path)
+    assert reloaded.get(37.9779, 23.7405) is PlaceCache.MISS
+    assert reloaded.get(-25.6858, -54.4435) == "Cataratas del Iguazú, Puerto Iguazú, Argentinien"

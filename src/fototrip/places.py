@@ -58,6 +58,19 @@ _SETTLEMENT_KEYS = (
 # OSM names carry stray runs of whitespace, e.g. "Bº  El Pilar" as returned.
 _WHITESPACE = re.compile(r"\s+")
 
+
+def _readable(name: str) -> bool:
+    """True when every letter is Latin, accented or not.
+
+    Nominatim falls back to the local name when it has neither a German nor an
+    English one, which put "Συνοικία Κολωνακίου" and "ตำบลเกาะเต่า" into the
+    captions. By code point rather than by Unicode name, because "º" in
+    "Bº El Pilar" is a letter whose name does not say LATIN. Everything up to
+    Latin Extended-B, plus Latin Extended Additional for Vietnamese.
+    """
+    return all(not ch.isalpha() or ord(ch) < 0x250 or 0x1E00 <= ord(ch) <= 0x1EFF for ch in name)
+
+
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 
 # Nominatim's usage policy requires an identifying User-Agent and at most one
@@ -84,7 +97,7 @@ def label_from_address(address: dict) -> str | None:
             if not isinstance(value, str):
                 continue
             value = _WHITESPACE.sub(" ", value).strip()
-            if value and value not in parts:
+            if value and value not in parts and _readable(value):
                 parts.append(value)
                 break
 
@@ -120,7 +133,14 @@ class PlaceCache:
         except (OSError, ValueError):
             return
         if isinstance(loaded, dict):
-            self._entries = {k: v for k, v in loaded.items() if v is None or isinstance(v, str)}
+            # A label in another script was cached before label_from_address
+            # learnt to skip such names, and would otherwise stay that way for
+            # good. Dropping it makes it a miss, so the next build asks again.
+            self._entries = {
+                k: v
+                for k, v in loaded.items()
+                if v is None or (isinstance(v, str) and _readable(v))
+            }
 
     def get(self, lat: float, lon: float):
         """Return the cached label, None for a known-unnamed place, or MISS."""
@@ -154,7 +174,10 @@ def fetch_address(lat: float, lon: float) -> dict:
             "format": "jsonv2",
             "zoom": "17",
             "addressdetails": "1",
-            "accept-language": "de",
+            # English fills the gaps German leaves: Κολωνάκι comes back as
+            # Kolonaki. Whatever is local-only after that, label_from_address
+            # skips.
+            "accept-language": "de,en",
         }
     )
     request = urllib.request.Request(f"{NOMINATIM_URL}?{query}", headers={"User-Agent": USER_AGENT})
