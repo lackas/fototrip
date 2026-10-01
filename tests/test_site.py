@@ -1,5 +1,7 @@
 import json
 import locale
+import re
+from pathlib import Path
 
 from fototrip.site import TripConfig, render_site
 
@@ -193,3 +195,20 @@ def test_the_page_links_back_to_the_overview(tmp_path):
     """Trips are deployed side by side under the overview, one level up."""
     render_site(MANIFEST, TripConfig(title="T"), tmp_path)
     assert '<a class="back" href="../">' in (tmp_path / "index.html").read_text()
+
+
+def test_the_page_fits_above_the_mobile_browser_toolbar():
+    """iOS Safari's `100vh` is the height with its toolbar collapsed, and the
+    toolbar only collapses when the page scrolls -- which a full-screen map
+    never does. So the day strip sat under Share and Back for good.
+    `100dvh` is the height actually visible.
+
+    Read from the stylesheet because no headless browser here has that
+    toolbar: in Chromium vh and dvh are the same, and a layout test would
+    pass with the bug in place.
+    """
+    css = (Path(__file__).parent.parent / "src/fototrip/assets/app.css").read_text()
+    body = re.search(r"\nbody \{(.*?)\}", css, re.DOTALL).group(1)
+    heights = re.findall(r"height:\s*([^;]+);", body)
+    # dvh last, so it wins wherever it is understood; vh stays as the fallback
+    assert heights[-1].strip() == "100dvh", heights
